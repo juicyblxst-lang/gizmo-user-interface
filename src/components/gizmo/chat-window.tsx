@@ -58,11 +58,7 @@ export function ChatWindow({
     onMessagesChange(threadId, messages);
   }, [messages, threadId, onMessagesChange]);
 
-  useEffect(() => {
-    // debug: confirm ChatWindow mounts
-    // eslint-disable-next-line no-console
-    console.log("ChatWindow mounted", { threadId, messagesLength: messages.length });
-  }, [threadId, messages.length]);
+
 
   useEffect(() => {
     if (!busy) textareaRef.current?.focus();

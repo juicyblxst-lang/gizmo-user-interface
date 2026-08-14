@@ -40,11 +40,21 @@ export function useThreads() {
     setThreads([newThread(id), ...current]);
   }, []);
 
-  const createThread = useCallback(() => {
-    const thread = newThread();
-    setThreads([thread, ...getSnapshot()]);
-    return thread.id;
-  }, []);
+const createThread = useCallback(() => {
+  const current = getSnapshot();
+
+  const sessionNumber =
+    current.reduce((max, thread) => {
+      const match = thread.title.match(/^Session (\d+)$/);
+      return match ? Math.max(max, Number(match[1])) : max;
+    }, 0) + 1;
+
+  const thread = newThread(undefined, sessionNumber);
+
+  setThreads([thread, ...current]);
+
+  return thread.id;
+}, []);
 
   const deleteThread = useCallback((id: string) => {
     setThreads(getSnapshot().filter((t) => t.id !== id));

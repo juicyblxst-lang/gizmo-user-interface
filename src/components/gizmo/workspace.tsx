@@ -25,19 +25,14 @@ export function Workspace({ threadId }: { threadId: string }) {
 
   const active = threads.find((t) => t.id === threadId);
 
-  useEffect(() => {
-    // debug: confirm Workspace mounts
-    // eslint-disable-next-line no-console
-    console.log("Workspace mounted", { threadId, active: !!active });
-  }, [threadId, active]);
 
-  const debugInfo = { threadId, threadsCount: threads.length, active: !!active };
-
-  const handleCreate = useCallback(() => {
-    const id = createThread();
-    setMobileNavOpen(false);
-    void navigate({ to: "/c/$threadId", params: { threadId: id } });
-  }, [createThread, navigate]);
+const handleCreate = useCallback(() => {
+  const id = createThread();
+  void navigate({
+    to: "/c/$threadId",
+    params: { threadId: id },
+  });
+}, [createThread, navigate]);
 
   const handleDelete = useCallback(
     (id: string) => {
@@ -51,25 +46,7 @@ export function Workspace({ threadId }: { threadId: string }) {
   return (
     <div
       className="flex h-dvh flex-col bg-background"
-      style={{ outline: "3px solid rgba(255,0,0,0.9)" }}
     >
-      <div
-        style={{
-          position: "fixed",
-          left: 12,
-          top: 12,
-          zIndex: 9999,
-          padding: "6px 10px",
-          background: "#000",
-          color: "#0ff",
-          borderRadius: 6,
-          fontFamily: "monospace",
-          fontSize: 12,
-        }}
-        data-testid="debug-overlay"
-      >
-        DEBUG: Workspace loaded — {JSON.stringify(debugInfo)}
-      </div>
       <header className="flex items-center justify-between gap-3 border-b-2 border-border bg-terminal px-3 py-2 sm:px-4">
         <div className="flex items-center gap-3">
           <button
@@ -94,15 +71,8 @@ export function Workspace({ threadId }: { threadId: string }) {
         </span>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        <aside
-          className={cn(
-            "w-64 shrink-0 border-r-2 border-border md:block",
-            mobileNavOpen
-              ? "absolute inset-y-[57px] left-0 z-20 block w-64 shadow-lg"
-              : "hidden",
-          )}
-        >
+<div className="relative flex min-h-0 flex-1">
+        <aside className="relative z-[9999] w-64 shrink-0 border-r-2 border-border block">
           <ThreadList
             threads={threads}
             activeId={threadId}

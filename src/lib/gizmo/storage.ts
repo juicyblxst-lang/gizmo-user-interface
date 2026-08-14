@@ -33,9 +33,19 @@ export function writeThreads(threads: GizmoThread[]) {
   }
 }
 
-export function newThread(id = createThreadId()): GizmoThread {
+export function newThread(
+  id = createThreadId(),
+  sessionNumber = 1,
+): GizmoThread {
   const now = Date.now();
-  return { id, title: "New session", createdAt: now, updatedAt: now, messages: [] };
+
+  return {
+    id,
+    title: `Session ${sessionNumber}`,
+    createdAt: now,
+    updatedAt: now,
+    messages: [],
+  };
 }
 
 export function messageText(message: UIMessage): string {

@@ -34,13 +34,17 @@ export function ThreadList({
       <div className="flex items-center justify-between border-b-2 border-sidebar-border px-3 py-3">
         <span className="text-pixel text-[9px] text-muted-foreground uppercase">Sessions</span>
         <button
-          type="button"
-          onClick={onCreate}
-          aria-label="New session"
-          className="pixel-frame-inset flex size-7 items-center justify-center bg-secondary text-primary transition-colors hover:bg-primary hover:text-primary-foreground"
-        >
-          <Plus className="size-4" />
-        </button>
+  type="button"
+onClick={(event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  alert("BUTTON WORKS");
+}}
+  aria-label="New session"
+  className="relative z-[9999] flex size-7 cursor-pointer items-center justify-center bg-secondary text-primary transition-colors hover:bg-primary hover:text-primary-foreground"
+>
+  <Plus className="size-4" />
+</button>
       </div>
 
       <nav className="flex-1 overflow-y-auto p-2">

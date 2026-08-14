@@ -63,6 +63,7 @@ import type {
   ReactNode,
   RefObject,
 } from "react";
+import React from "react";
 import {
   Children,
   createContext,
@@ -476,9 +477,9 @@ export function PromptInputSubmit({ status, onClick, className, ...props }: any)
   const ctx = useContext(PromptInputCtx);
   return (
     <button
-      type="button"
+      type="submit"
       className={className}
-      onClick={onClick ?? (() => ctx?.submit())}
+      onClick={onClick ?? (() => { console.log('Button clicked, ctx:', ctx); ctx?.submit(); })}
       {...props}
     >
       {status === "submitted" || status === "streaming" ? "Stop" : "Send"}
