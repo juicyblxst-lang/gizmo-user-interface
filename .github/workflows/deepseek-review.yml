@@ -1,0 +1,43 @@
+name: DeepSeek Free Auto-Review
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get code changes
+        id: diff
+        run: |
+          git fetch origin main
+          echo "diff<<EOF" >> $GITHUB_OUTPUT
+          git diff origin/main...HEAD >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      - name: Ask DeepSeek for fixes
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          curl https://api.deepseek.com/v1/chat/completions \
+            -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "model": "deepseek-chat",
+              "messages": [
+                {"role": "system", "content": "You are a senior dev. Review this diff and suggest exact fixes."},
+                {"role": "user", "content": "${{ steps.diff.outputs.diff }}"}
+              ]
+            }' > review.txt
+      - name: Post review comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('review.txt', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `**DeepSeek Fix Suggestion:**\n${body}`
+            });
