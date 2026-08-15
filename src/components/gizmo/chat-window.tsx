@@ -130,21 +130,21 @@ export function ChatWindow({
         <ConversationScrollButton />
       </Conversation>
 
-      <div className="border-t-2 border-border bg-terminal px-3 py-3 sm:px-4">
+      <div className="border-t-2 border-border bg-terminal px-3 py-3 sm:px-4 sm:py-4">
         <div className="mx-auto w-full max-w-3xl">
           <PromptInput onSubmit={handleSubmit} className="gizmo-transmit pixel-frame-inset bg-card">
             <PromptInputTextarea
               ref={textareaRef}
               autoFocus
-              placeholder="Transmit to GIZMO…"
-              aria-label="Message GIZMO"
+              placeholder="Ask GIZMO…"
+              aria-label="Ask GIZMO"
               className="gizmo-transmit-textarea font-mono text-sm"
             />
-            <PromptInputFooter className="gizmo-transmit-footer items-center justify-between border-t-2 border-input px-3 py-3 sm:px-4 sm:py-3.5">
+            <PromptInputFooter className="gizmo-transmit-footer items-center justify-between border-t-2 border-input px-3 py-3 sm:px-4 sm:py-3">
               <StatusIndicator status={gizmoStatus} className="gizmo-status border-0 bg-transparent px-0 py-0" />
               <PromptInputSubmit
                 status={status}
-                aria-label={busy ? "Stop transmission" : "Transmit message to GIZMO"}
+                aria-label={busy ? "Stop transmission" : "Ask GIZMO"}
                 onClick={busy ? () => void stop() : undefined}
                 className="gizmo-transmit-button"
               />
