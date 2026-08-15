@@ -64,15 +64,24 @@
   --input: oklch(0.30 0.06 175);
   --terminal: oklch(0.105 0.028 175);
   --signal: oklch(0.78 0.14 175);
-  --alert: oklch(0.65 0.25 25);
+  --alert: oklch(0.65 0.25 175);
   --grid: oklch(0.16 0.035 175);
 }
 
 * { border-color: var(--border); }
 body { background-color: var(--background); color: var(--foreground); font-family: "JetBrains Mono", ui-monospace, monospace; }
 
-/* GIZMO transmission control: compact on desktop, comfortable on mobile. */
+.gizmo-sidebar-section-title {
+  color: var(--primary);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+}
+.gizmo-sidebar-section-header {
+  min-height: 34px;
+}
+
 .gizmo-transmit {
+  position: relative;
   width: 100%;
   max-width: 900px;
   overflow: hidden;
@@ -83,14 +92,14 @@ body { background-color: var(--background); color: var(--foreground); font-famil
 .gizmo-transmit-textarea {
   display: block;
   width: 100%;
-  min-height: 92px;
-  max-height: 180px;
+  min-height: 104px;
+  max-height: 190px;
   resize: vertical;
   border: 0;
   outline: 0;
   background: #071c1f;
   color: #b2cecb;
-  padding: 18px 20px;
+  padding: 18px 86px 18px 20px;
   font-size: 15px;
   line-height: 1.45;
   letter-spacing: 0.03em;
@@ -99,25 +108,14 @@ body { background-color: var(--background); color: var(--foreground); font-famil
 .gizmo-transmit-textarea::placeholder { color: #769996; opacity: 1; }
 .gizmo-transmit-textarea:focus { box-shadow: inset 0 0 0 1px #245c60; }
 .gizmo-transmit-footer {
-  min-height: 58px;
-  border-top: 2px solid #28565a;
-  background: #071c1f;
+  pointer-events: none;
 }
-.gizmo-status { color: #83a7a4; }
-.gizmo-status > span:first-child {
-  width: 12px;
-  height: 12px;
-  background: #12b8b2;
-}
-.gizmo-status > span:last-child {
-  color: #83a7a4;
-  font-size: 10px;
-  letter-spacing: 0.12em;
-}
+.gizmo-status { display: none; }
 .gizmo-transmit-button {
+  pointer-events: auto;
   display: inline-flex;
-  width: 48px;
-  height: 48px;
+  width: 50px;
+  height: 50px;
   cursor: pointer;
   align-items: center;
   justify-content: center;
@@ -139,10 +137,9 @@ body { background-color: var(--background); color: var(--foreground); font-famil
   .gizmo-transmit-textarea {
     min-height: 112px;
     max-height: 220px;
-    padding: 17px;
+    padding: 17px 78px 17px 17px;
     font-size: 16px;
   }
-  .gizmo-transmit-footer { min-height: 64px; padding: 8px 12px; }
   .gizmo-transmit-button { width: 52px; height: 52px; }
   .gizmo-transmit-button svg { width: 25px; height: 25px; }
 }
