@@ -150,7 +150,7 @@ function EmptyState() {
   return (
     <div className="flex min-h-[46vh] flex-col items-center justify-center text-center">
       <GizmoCharacter className="w-40 opacity-70 sm:w-52" />
-      <p className="text-pixel mt-6 text-[15px] text-primary sm:text-[17px]">GIZMO</p>
+      <p className="text-pixel mt-6 text-[13px] leading-none text-primary sm:text-[14px]">GIZMO</p>
       <p className="mt-3 max-w-sm text-xs leading-relaxed text-muted-foreground">
         Find the market that moves first. Trade the market that follows.
       </p>
