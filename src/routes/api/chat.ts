@@ -44,6 +44,10 @@ async function backendRequest(path: string, init?: RequestInit) {
     throw new Error(message);
   }
 
+  if (data && typeof data === "object" && "error" in data && (data as { error?: unknown }).error) {
+    throw new Error(String((data as { error: unknown }).error));
+  }
+
   return data;
 }
 
@@ -55,9 +59,41 @@ const tools = {
   }),
 
   getMarketData: tool({
-    description: "Get current price, 24h volume, high/low, and change for a specific pair.",
+    description: "Get current live market data for one supported asset.",
     inputSchema: z.object({ pair: z.enum(SUPPORTED_PAIRS) }),
     execute: async ({ pair: symbol }) => backendRequest(`/api/tools/market?pair=${encodeURIComponent(pair(symbol))}`),
+  }),
+
+  getLeadLagAnalysis: tool({
+    description: "Get the factual current lead-lag measurements available from Gizmo. The current engine measures BTC as the leader against the other five supported assets. Never infer a lead-lag relationship that is not present in the returned data.",
+    inputSchema: z.object({ pair: z.enum(SUPPORTED_PAIRS).optional() }),
+    execute: async ({ pair: symbol }) => {
+      const data = await backendRequest("/api/tools/signals");
+      const pairs = data && typeof data === "object" && "pairs" in data
+        ? (data as { pairs?: Record<string, Record<string, unknown>> }).pairs ?? {}
+        : {};
+
+      const selected = symbol
+        ? Object.entries(pairs).filter(([key]) => key.startsWith(`${symbol}-`))
+        : Object.entries(pairs);
+
+      return {
+        engine: "Gizmo lead-lag engine",
+        leaderModel: "BTC",
+        measurements: selected.map(([key, value]) => ({
+          pair: key,
+          leader: key.startsWith("BTC-") ? "BTC" : "BTC",
+          follower: key.replace("-USDT-SWAP", ""),
+          lagHours: value.lag ?? null,
+          correlation: value.correlation ?? null,
+          zscore: value.zscore ?? null,
+          direction: value.direction ?? "NEUTRAL",
+          signal: value.signal ?? "NO_DATA",
+          price: value.price ?? null,
+        })),
+        note: "These are measurements produced by the existing backend engine; no relationship is inferred by the UI.",
+      };
+    },
   }),
 
   getHistory: tool({
@@ -96,13 +132,31 @@ function extractPair(text: string): Symbol | null {
   return match ? (match[1] as Symbol) : null;
 }
 
+function extractLastReferencedPair(messages: UIMessage[], selectedMarket: string | null): Symbol | null {
+  for (const message of [...messages].reverse()) {
+    const text = message.parts
+      .map((part) => (part.type === "text" ? part.text : ""))
+      .join(" ");
+    const found = extractPair(text);
+    if (found) return found;
+  }
+  return extractPair(selectedMarket ?? "");
+}
+
 function isLiveMarketQuestion(text: string) {
-  const lower = text.toLowerCase();
-  return /\b(doing|happening|going|now|currently|right now|price|market|ticker|worth|value|cost|how much)\b/.test(lower);
+  return /\b(doing|happening|going|now|currently|right now|price|market|ticker|worth|value|cost|how much)\b/i.test(text);
 }
 
 function isSignalsQuestion(text: string) {
   return /\b(signal|signals|z-?score|lead.?lag|leader|follower|deviation|mean.?reversion)\b/i.test(text);
+}
+
+function isFollowUp(text: string) {
+  return /^(why|how|what do you mean|why is that|why do you think so|is that unusual|what about it|and what about that|explain|tell me more|how so|what does that mean)\b/i.test(text.trim());
+}
+
+function isRelationshipQuestion(text: string) {
+  return /\b(relationship|lead.?lag|leads?|follows?|lag|correlation|correlated|between|relative to)\b/i.test(text);
 }
 
 async function answerLiveMarketQuestion(text: string, selectedMarket: string | null) {
@@ -126,14 +180,12 @@ async function answerLiveMarketQuestion(text: string, selectedMarket: string | n
   const lag = Number(record?.lag ?? 0);
   const correlation = record?.correlation == null ? null : Number(record.correlation);
 
-  const lines = [
-    `BTC` === symbol ? `BTC is currently trading at $${price.toLocaleString(undefined, { maximumFractionDigits: 2 })}.` : `${symbol} is currently trading at $${price.toLocaleString(undefined, { maximumFractionDigits: 6 })}.`,
+  return [
+    `${symbol} is currently trading at $${price.toLocaleString(undefined, { maximumFractionDigits: symbol === "BTC" ? 2 : 6 })}.`,
     `24h range: $${low.toLocaleString(undefined, { maximumFractionDigits: 6 })} – $${high.toLocaleString(undefined, { maximumFractionDigits: 6 })}.`,
     `24h change: ${change.toFixed(2)}%. Volume: $${volume.toLocaleString(undefined, { maximumFractionDigits: 0 })}.`,
     `Gizmo signal state: ${String(record?.signal ?? "UNKNOWN")}; direction ${direction}; z-score ${zscore.toFixed(2)}${lag ? `; estimated lag ${lag}h` : ""}${correlation == null ? "" : `; correlation ${correlation.toFixed(3)}`}.`,
-  ];
-
-  return lines.join("\n");
+  ].join("\n");
 }
 
 async function answerSignalsQuestion(text: string) {
@@ -149,13 +201,36 @@ async function answerSignalsQuestion(text: string) {
     const z = Number(value.zscore ?? 0);
     const direction = String(value.direction ?? "NEUTRAL");
     const signal = String(value.signal ?? "UNKNOWN");
-    return `${key.replace("-USDT-SWAP", "")}: ${signal}, ${direction}, z-score ${z.toFixed(2)}.`;
+    const lag = value.lag == null ? null : Number(value.lag);
+    const correlation = value.correlation == null ? null : Number(value.correlation);
+    return `${key.replace("-USDT-SWAP", "")}: ${signal}, ${direction}, z-score ${z.toFixed(2)}${lag == null ? "" : `, lag ${lag}h`}${correlation == null ? "" : `, correlation ${correlation.toFixed(3)}`}.`;
   }).join("\n");
 }
 
-function directMarketIntent(text: string, selectedMarket: string | null) {
-  const pairSymbol = extractPair(text) ?? extractPair(selectedMarket ?? "");
-  return pairSymbol && (isLiveMarketQuestion(text) || isSignalsQuestion(text));
+async function answerRelationshipQuestion(text: string) {
+  const mentions = [...text.toUpperCase().matchAll(/\b(BTC|ETH|SOL|XRP|DOGE|HYPE)\b/g)].map((match) => match[1] as Symbol);
+  const unique = [...new Set(mentions)];
+  const data = await backendRequest("/api/tools/signals");
+  const pairs = data && typeof data === "object" && "pairs" in data
+    ? (data as { pairs?: Record<string, Record<string, unknown>> }).pairs ?? {}
+    : {};
+
+  if (unique.length >= 2 && !unique.includes("BTC")) {
+    return `The current Gizmo signal engine does not claim a direct ${unique[0]}/${unique[1]} lead-lag relationship. Its current quantitative model uses BTC as the leader and measures BTC against the other supported assets. I won't invent a ${unique[0]} → ${unique[1]} relationship.`;
+  }
+
+  const follower = unique.find((symbol) => symbol !== "BTC") ?? "SOL";
+  const value = pairs[pair(follower)];
+  if (!value) return `Gizmo has no current lead-lag measurement available for BTC → ${follower}.`;
+
+  return [
+    `Current measured relationship: BTC → ${follower}.`,
+    `Estimated lag: ${value.lag ?? "N/A"} hours.`,
+    `Correlation: ${value.correlation ?? "N/A"}.`,
+    `Current z-score: ${value.zscore ?? "N/A"}.`,
+    `Signal state: ${value.signal ?? "N/A"}; direction: ${value.direction ?? "N/A"}.`,
+    "These values are measurements from the Gizmo engine, not a prediction that the relationship will persist or revert.",
+  ].join("\n");
 }
 
 export const Route = createFileRoute("/api/chat")({
@@ -173,10 +248,25 @@ export const Route = createFileRoute("/api/chat")({
             .map((part) => (part.type === "text" ? part.text : ""))
             .join(" ")
             .trim() ?? "";
+          const contextPair = extractLastReferencedPair(body.messages, selectedMarket);
+          const hasExplicitPair = !!extractPair(userText);
 
-          // Live market questions use Gizmo's existing backend tools directly.
-          // This avoids requiring an external LLM gateway just to retrieve factual market data.
-          if (directMarketIntent(userText, selectedMarket)) {
+          if (isRelationshipQuestion(userText) && (hasExplicitPair || contextPair)) {
+            const responseText = await answerRelationshipQuestion(userText || `relationship with ${contextPair}`);
+            const stream = createUIMessageStream({
+              originalMessages: body.messages,
+              generateId,
+              execute: ({ writer }) => {
+                const textId = generateId();
+                writer.write({ type: "text-start", id: textId });
+                writer.write({ type: "text-delta", id: textId, delta: responseText });
+                writer.write({ type: "text-end", id: textId });
+              },
+            });
+            return createUIMessageStreamResponse({ stream });
+          }
+
+          if (hasExplicitPair && (isLiveMarketQuestion(userText) || isSignalsQuestion(userText))) {
             const responseText = isSignalsQuestion(userText)
               ? await answerSignalsQuestion(userText)
               : await answerLiveMarketQuestion(userText, selectedMarket);
@@ -191,14 +281,34 @@ export const Route = createFileRoute("/api/chat")({
                 writer.write({ type: "text-end", id: textId });
               },
             });
-
             return createUIMessageStreamResponse({ stream });
           }
 
+          // Follow-ups retain the last referenced asset and receive fresh evidence.
+          // The model is then responsible for explaining that evidence in context.
+          const evidencePair = contextPair ?? (selectedMarket ? extractPair(selectedMarket) : null);
+          let verifiedContext = "";
+          if (evidencePair && isFollowUp(userText)) {
+            const [market, signals] = await Promise.all([
+              backendRequest(`/api/tools/market?pair=${encodeURIComponent(pair(evidencePair))}`),
+              backendRequest("/api/tools/signals"),
+            ]);
+            verifiedContext = [
+              `CONVERSATION SUBJECT: ${evidencePair}`,
+              "FRESH VERIFIED MARKET EVIDENCE:",
+              JSON.stringify(market),
+              "FRESH VERIFIED SIGNAL EVIDENCE:",
+              JSON.stringify(signals),
+              "Use this evidence to answer the follow-up. Explain reasoning, but do not invent facts or numbers. If the evidence does not support a conclusion, say so.",
+            ].join("\n");
+          }
+
           const messages = await convertToModelMessages(body.messages);
-          const contextPrompt = selectedMarket
-            ? `${GIZMO_SYSTEM_PROMPT}\n\nThe user currently has ${selectedMarket} selected in the UI. Treat that as the active market context when their request is ambiguous, but still call the relevant live tool before stating any market data.`
-            : GIZMO_SYSTEM_PROMPT;
+          const contextPrompt = [
+            GIZMO_SYSTEM_PROMPT,
+            selectedMarket ? `The user currently has ${selectedMarket} selected in the UI. Treat it as active context when their request is ambiguous.` : "",
+            verifiedContext,
+          ].filter(Boolean).join("\n\n");
 
           const result = streamText({
             model,
