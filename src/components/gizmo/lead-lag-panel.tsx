@@ -17,7 +17,7 @@ export function LeadLagPanel({ market }: { market: MarketPair }) {
   useEffect(() => {
     let disposed = false;
     setLoading(true); setError(false); setAnalysis(null);
-    fetch(`${window.location.origin.replace(/\/$/, "")}/api/tools/leadlag-chart?pair=${encodeURIComponent(id)}`, { cache: "no-store" })
+    fetch(`/api/leadlag-chart?pair=${encodeURIComponent(id)}`, { cache: "no-store" })
       .then(async (response) => { if (!response.ok) throw new Error("Lead-lag data unavailable"); return response.json() as Promise<Analysis>; })
       .then((data) => { if (!disposed) setAnalysis(data); })
       .catch(() => { if (!disposed) setError(true); })
