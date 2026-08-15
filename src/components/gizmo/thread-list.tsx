@@ -43,7 +43,6 @@ export function ThreadList({ threads, activeId, onCreate, onDelete, onNavigate, 
           <button type="button" onClick={() => { onOpenAbout(); onNavigate?.(); }} className="flex w-full cursor-pointer items-center px-2 py-1.5 text-left text-xs text-muted-foreground hover:text-foreground"><span className="mr-2 text-primary">·</span>ABOUT</button>
         </div>}
       </div>
-      <div className="border-t-2 border-sidebar-border px-3 py-3"><p className="text-[10px] leading-relaxed text-muted-foreground">Sessions are stored locally in this browser.</p></div>
     </div>
   );
 }
