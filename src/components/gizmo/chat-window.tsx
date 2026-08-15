@@ -58,8 +58,6 @@ export function ChatWindow({
     onMessagesChange(threadId, messages);
   }, [messages, threadId, onMessagesChange]);
 
-
-
   useEffect(() => {
     if (!busy) textareaRef.current?.focus();
   }, [busy, threadId]);
@@ -132,27 +130,26 @@ export function ChatWindow({
         <ConversationScrollButton />
       </Conversation>
 
-      <div className="border-t-2 border-border bg-terminal px-4 py-3">
+      <div className="border-t-2 border-border bg-terminal px-3 py-3 sm:px-4">
         <div className="mx-auto w-full max-w-3xl">
-          <PromptInput onSubmit={handleSubmit} className="pixel-frame-inset bg-card">
+          <PromptInput onSubmit={handleSubmit} className="gizmo-transmit pixel-frame-inset bg-card">
             <PromptInputTextarea
               ref={textareaRef}
               autoFocus
-              placeholder="Ask GIZMO…"
-              className="font-mono text-sm"
+              placeholder="Transmit to GIZMO…"
+              aria-label="Message GIZMO"
+              className="gizmo-transmit-textarea font-mono text-sm"
             />
-            <PromptInputFooter className="items-center justify-between border-t-2 border-input px-2 py-1.5">
-              <StatusIndicator status={gizmoStatus} className="border-0 bg-transparent px-0" />
+            <PromptInputFooter className="gizmo-transmit-footer items-center justify-between border-t-2 border-input px-3 py-3 sm:px-4 sm:py-3.5">
+              <StatusIndicator status={gizmoStatus} className="gizmo-status border-0 bg-transparent px-0 py-0" />
               <PromptInputSubmit
                 status={status}
+                aria-label={busy ? "Stop transmission" : "Transmit message to GIZMO"}
                 onClick={busy ? () => void stop() : undefined}
-                className="border-2 border-border bg-primary text-primary-foreground hover:bg-accent hover:text-accent-foreground"
+                className="gizmo-transmit-button"
               />
             </PromptInputFooter>
           </PromptInput>
-          <p className="mt-2 text-[10px] text-muted-foreground">
-            GIZMO will not fabricate live data.
-          </p>
         </div>
       </div>
     </div>
