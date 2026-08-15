@@ -25,54 +25,36 @@ export function Workspace({ threadId }: { threadId: string }) {
 
   const active = threads.find((t) => t.id === threadId);
 
+  const handleCreate = useCallback(() => {
+    const id = createThread();
+    setMarketContext(null);
+    setMobileNavOpen(false);
+    void navigate({ to: "/c/$threadId", params: { threadId: id } });
+  }, [createThread, navigate]);
 
-const handleCreate = useCallback(() => {
-  const id = createThread();
-  void navigate({
-    to: "/c/$threadId",
-    params: { threadId: id },
-  });
-}, [createThread, navigate]);
-
-  const handleDelete = useCallback(
-    (id: string) => {
-      deleteThread(id);
-      if (id !== threadId) return;
-      void navigate({ to: "/" });
-    },
-    [deleteThread, navigate, threadId],
-  );
+  const handleDelete = useCallback((id: string) => {
+    deleteThread(id);
+    if (id !== threadId) return;
+    void navigate({ to: "/" });
+  }, [deleteThread, navigate, threadId]);
 
   return (
-    <div
-      className="flex h-dvh flex-col bg-background"
-    >
+    <div className="flex h-dvh flex-col bg-background">
       <header className="flex items-center justify-between gap-3 border-b-2 border-border bg-terminal px-3 py-2 sm:px-4">
         <div className="flex items-center gap-3">
-          <button
-            type="button"
-            aria-label="Toggle sessions"
-            onClick={() => setMobileNavOpen((o) => !o)}
-            className="pixel-frame-inset flex size-8 items-center justify-center bg-secondary text-primary md:hidden"
-          >
+          <button type="button" aria-label="Toggle sessions" onClick={() => setMobileNavOpen((o) => !o)} className="pixel-frame-inset flex size-8 items-center justify-center bg-secondary text-primary md:hidden">
             {mobileNavOpen ? <X className="size-4" /> : <Menu className="size-4" />}
           </button>
-
           <div className="flex items-center gap-2">
             <GizmoMark className="size-7" />
             <h1 className="text-pixel text-[12px] leading-none text-primary">{GIZMO_NAME}</h1>
           </div>
-
-          <p className="mt-1.5 text-[10px] text-muted-foreground" />
         </div>
-
-        <span className="text-pixel hidden text-[8px] text-muted-foreground sm:inline">
-          {GIZMO_VERSION}
-        </span>
+        <span className="text-pixel hidden text-[8px] text-muted-foreground sm:inline">{GIZMO_VERSION}</span>
       </header>
 
-<div className="relative flex min-h-0 flex-1">
-        <aside className="relative z-[9999] w-64 shrink-0 border-r-2 border-border block">
+      <div className="relative flex min-h-0 flex-1">
+        <aside className={cn("absolute inset-y-0 left-0 z-50 w-64 border-r-2 border-border bg-sidebar transition-transform md:relative md:block md:translate-x-0", mobileNavOpen ? "translate-x-0" : "-translate-x-full")}>
           <ThreadList
             threads={threads}
             activeId={threadId}
@@ -81,40 +63,19 @@ const handleCreate = useCallback(() => {
             onNavigate={() => setMobileNavOpen(false)}
             selectedMarket={marketContext?.market ?? null}
             onSelectMarket={(market) => {
-              setMarketContext({
-                market,
-                timeframe: "15m",
-              });
+              setMarketContext({ market, timeframe: "1h" });
               setMobileNavOpen(false);
             }}
           />
         </aside>
 
+        {mobileNavOpen ? <button type="button" aria-label="Close sessions" onClick={() => setMobileNavOpen(false)} className="absolute inset-0 z-40 bg-background/60 md:hidden" /> : null}
+
         <main className="min-h-0 min-w-0 flex-1">
           {marketContext ? (
-            <MarketChart
-              market={marketContext.market}
-              timeframe={marketContext.timeframe}
-              onTimeframeChange={(timeframe) =>
-                setMarketContext((current) =>
-                  current
-                    ? {
-                        ...current,
-                        timeframe,
-                      }
-                    : current,
-                )
-              }
-              onClose={() => setMarketContext(null)}
-            />
+            <MarketChart market={marketContext.market} onClose={() => setMarketContext(null)} />
           ) : (
-            <ChatWindow
-              key={threadId}
-              threadId={threadId}
-              initialMessages={active?.messages ?? []}
-              marketContext={marketContext}
-              onMessagesChange={saveMessages}
-            />
+            <ChatWindow key={threadId} threadId={threadId} initialMessages={active?.messages ?? []} marketContext={marketContext} onMessagesChange={saveMessages} />
           )}
         </main>
       </div>
