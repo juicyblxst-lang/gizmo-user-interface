@@ -69,6 +69,7 @@ function extractLastReferencedPair(messages: UIMessage[], selectedMarket: string
   return extractPair(selectedMarket ?? "");
 }
 function isLiveMarketQuestion(text: string) { return /\b(doing|happening|going|now|currently|right now|price|market|ticker|worth|value|cost|how much)\b/i.test(text); }
+function isAboutMarketQuestion(text: string) { return /^\s*(and\s+)?what\s+about\s+(BTC|ETH|SOL|XRP|DOGE|HYPE)\b/i.test(text); }
 function isSignalsQuestion(text: string) { return /\b(signal|signals|z-?score|lead.?lag|leader|follower|deviation|mean.?reversion)\b/i.test(text); }
 function isFollowUp(text: string) { return /^(why|how|what do you mean|why is that|why do you think so|is that unusual|what about it|and what about that|explain|tell me more|how so|what does that mean)\b/i.test(text.trim()); }
 function isRecentHistoryQuestion(text: string) { return /\b(last|past|previous|recent)\b.*\b(\d+\s*(minutes?|hours?|days?)|hour|hours|day|days)\b/i.test(text) || /\b(\d+\s*(minutes?|hours?|days?))\b/i.test(text); }
@@ -81,26 +82,86 @@ function makeStreamResponse(responseText: string, originalMessages: UIMessage[])
 function money(value: number, symbol: Symbol) { return `$${value.toLocaleString(undefined, { maximumFractionDigits: symbol === "BTC" ? 2 : 6 })}`; }
 function volume(value: number) { return `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`; }
 
+function conversationSeed(messages: UIMessage[], text: string) {
+  const source = `${messages.filter((message) => message.role === "user").length}:${text}:${messages.slice(-4).map((message) => message.parts.map((part) => part.type === "text" ? part.text : "").join(" ")).join("|")}`;
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function pick<T>(items: T[], seed: number) {
+  return items[seed % items.length];
+}
+
 async function getEvidence(symbol: Symbol) {
   const [market, signals] = await Promise.all([backendRequest(`/api/tools/market?pair=${encodeURIComponent(pair(symbol))}`), backendRequest("/api/tools/signals")]);
   const record = signals && typeof signals === "object" && "pairs" in signals ? (signals as { pairs?: Record<string, Record<string, unknown>> }).pairs?.[pair(symbol)] : undefined;
   return { market: market as { price?: number; volume24h?: number; high24h?: number; low24h?: number; change24h?: number }, record };
 }
 
-function dynamicMarketOpening(symbol: Symbol, change: number, direction: string, signal: string, zscore: number) {
-  if (Math.abs(change) < 0.05 && direction === "NEUTRAL") return ["Pretty quiet on the surface.", `${symbol} is essentially flat over 24h, and Gizmo isn't seeing a directional statistical deviation right now.`, `The current z-score is ${zscore.toFixed(2)} and the engine state is ${signal}.`].join("\n");
-  if (change > 1) return [`${symbol} is leaning higher right now.`, `It's up ${change.toFixed(2)}% over 24h, while the Gizmo engine has it at ${signal} / ${direction}.`, `The z-score is ${zscore.toFixed(2)}, so the quantitative picture is worth watching alongside the price move.`].join("\n");
-  if (change < -1) return [`${symbol} is under some pressure today.`, `It's down ${Math.abs(change).toFixed(2)}% over 24h, with the engine currently reading ${signal} / ${direction}.`, `Its z-score is ${zscore.toFixed(2)}; that tells us how unusual the modeled relationship is, not where price must go next.`].join("\n");
-  return [`${symbol} is moving, but not in an especially extreme way on the 24h snapshot.`, `The market is ${change >= 0 ? "slightly positive" : "slightly negative"} at ${change.toFixed(2)}%, while Gizmo reads ${signal} / ${direction}.`, `The current z-score is ${zscore.toFixed(2)}.`].join("\n");
+function dynamicMarketOpening(symbol: Symbol, change: number, direction: string, signal: string, zscore: number, seed: number) {
+  if (Math.abs(change) < 0.05 && direction === "NEUTRAL") {
+    return pick([
+      `${symbol} is pretty quiet right now.`,
+      `Nothing dramatic is showing up in the latest ${symbol} snapshot.`,
+      `${symbol} isn't giving a strong directional read at the moment.`,
+      `The latest ${symbol} read is fairly flat.`,
+      `At the moment, ${symbol} looks more balanced than directional.`,
+      `The ${symbol} tape looks relatively calm on the 24h view.`,
+    ], seed);
+  }
+  if (change > 1) {
+    return pick([
+      `${symbol} is leaning higher right now.`,
+      `${symbol} has a bit of upside pressure showing.`,
+      `The latest ${symbol} snapshot is tilted positive.`,
+      `${symbol} is pushing higher on the current 24h read.`,
+      `There's some strength showing up in ${symbol} at the moment.`,
+      `${symbol} is holding a positive tone on the current snapshot.`,
+    ], seed);
+  }
+  if (change < -1) {
+    return pick([
+      `${symbol} is under some pressure today.`,
+      `${symbol} is leaning lower on the current 24h read.`,
+      `The latest ${symbol} snapshot is tilted negative.`,
+      `${symbol} is showing some downside pressure right now.`,
+      `There's some weakness showing up in ${symbol} at the moment.`,
+      `${symbol} has a softer tone on the current snapshot.`,
+    ], seed);
+  }
+  return pick([
+    `${symbol} is moving, but nothing looks especially extreme on the 24h snapshot.`,
+    `${symbol} is active, though the current move isn't particularly stretched.`,
+    `The latest ${symbol} read is modest rather than aggressive.`,
+    `${symbol} has a mild move on the board, not a major deviation.`,
+    `There's movement in ${symbol}, but the current numbers aren't flashing an extreme read.`,
+    `${symbol} is moving without a strong statistical push behind it right now.`,
+  ], seed);
 }
 
-async function answerLiveMarketQuestion(text: string, selectedMarket: string | null) {
+async function answerLiveMarketQuestion(text: string, selectedMarket: string | null, conversationMessages: UIMessage[]) {
   const symbol = extractPair(text) ?? extractPair(selectedMarket ?? "") ?? "BTC";
   const { market, record } = await getEvidence(symbol);
   const price = Number(market.price ?? 0), vol = Number(market.volume24h ?? 0), high = Number(market.high24h ?? 0), low = Number(market.low24h ?? 0), change = Number(market.change24h ?? 0);
   const direction = String(record?.direction ?? "NEUTRAL"), signal = String(record?.signal ?? "UNKNOWN"), zscore = Number(record?.zscore ?? 0);
   const lag = record?.lag == null ? null : Number(record.lag), correlation = record?.correlation == null ? null : Number(record.correlation);
-  return [dynamicMarketOpening(symbol, change, direction, signal, zscore), `Price ${money(price, symbol)} · 24h range ${money(low, symbol)}–${money(high, symbol)} · volume ${volume(vol)}.`, `Lead-lag context: ${signal}, ${direction}, z-score ${zscore.toFixed(2)}${lag == null ? "" : `, measured lag ${lag}h`}${correlation == null ? "" : `, correlation ${correlation.toFixed(3)}`}.`].join("\n");
+  const seed = conversationSeed(conversationMessages, text);
+  const contextLine = pick([
+    `The 24h change is ${change.toFixed(2)}%, so the price action itself is fairly ${Math.abs(change) < 0.05 ? "flat" : change > 0 ? "firm" : "soft"}.`,
+    `On the price side, the 24h move is ${change.toFixed(2)}%.`,
+    `The market snapshot has BTC-independent price data at ${change.toFixed(2)}% over 24h.`,
+  ], seed + 1).replace("BTC-independent", symbol);
+  const leadLagLine = pick([
+    `Gizmo reads ${signal} / ${direction}, with a z-score of ${zscore.toFixed(2)}.`,
+    `The engine currently has it at ${signal} with ${direction} direction and a ${zscore.toFixed(2)} z-score.`,
+    `From the lead-lag engine: ${signal}, ${direction}, z-score ${zscore.toFixed(2)}.`,
+  ], seed + 2);
+  const relationship = `Lead-lag context: ${signal}, ${direction}, z-score ${zscore.toFixed(2)}${lag == null ? "" : `, measured lag ${lag}h`}${correlation == null ? "" : `, correlation ${correlation.toFixed(3)}`}.`;
+  return [dynamicMarketOpening(symbol, change, direction, signal, zscore, seed), contextLine, `Price ${money(price, symbol)} · 24h range ${money(low, symbol)}–${money(high, symbol)} · volume ${volume(vol)}.`, leadLagLine, relationship].join("\n");
 }
 
 async function answerSignalsQuestion(text: string) {
@@ -120,13 +181,39 @@ async function answerRelationshipQuestion(text: string) {
   return [`BTC → ${follower} is the current measured relationship.`, `Lag: ${value.lag ?? "N/A"}h · correlation: ${value.correlation ?? "N/A"} · z-score: ${value.zscore ?? "N/A"}.`, `Signal: ${value.signal ?? "N/A"} · direction: ${value.direction ?? "N/A"}.`, "Those are engine measurements, not a promise that the relationship will persist or revert."].join("\n");
 }
 
-async function answerFollowUpQuestion(text: string, symbol: Symbol) {
+async function answerFollowUpQuestion(text: string, symbol: Symbol, conversationMessages: UIMessage[]) {
   const { market, record } = await getEvidence(symbol);
-  const price = Number(market.price ?? 0), change = Number(market.change24h ?? 0), vol = Number(market.volume24h ?? 0), zscore = Number(record?.zscore ?? 0), direction = String(record?.direction ?? "NEUTRAL"), signal = String(record?.signal ?? "UNKNOWN"), lag = record?.lag == null ? null : Number(record.lag), correlation = record?.correlation == null ? null : Number(record.correlation);
+  const price = Number(market.price ?? 0), change = Number(market.change24h ?? 0), vol = Number(market.volume24h ?? 0), zscore = Number(record?.zscore ?? 0), direction = String(record?.direction ?? "NEUTRAL"), signal = String(record?.signal ?? "UNKNOWN"), lag = record?.lag == null ? null : Number(record.lag), correlation = record?.correlation == null ? null : Number(record?.correlation);
   if (/\b(unusual|normal|odd|extreme)\b/i.test(text)) return `${symbol} is currently at a z-score of ${zscore.toFixed(2)} with ${direction} direction and ${signal} status. That is not an extreme deviation in the current engine snapshot. A z-score describes the modeled residual; it does not predict the next price move.`;
-  const openings = ["Yeah — here's the part that matters.", "The reason is in the numbers.", "That's coming from the live snapshot, not a guess.", "Here's how I'd read the evidence.", "The useful clue is the relationship data."];
-  const opening = openings[(Math.abs(Math.round(price * 100)) + Math.round(Math.abs(zscore) * 100)) % openings.length];
-  return [opening, `${symbol} is at ${money(price, symbol)}, ${change >= 0 ? "up" : "down"} ${Math.abs(change).toFixed(2)}% over 24h, with ${volume(vol)} traded in that window.`, `Gizmo currently reads ${signal} / ${direction}, z-score ${zscore.toFixed(2)}${lag == null ? "" : `, lag ${lag}h`}${correlation == null ? "" : `, correlation ${correlation.toFixed(3)}`}.`, "So the earlier read is based on those measurements. They describe what the engine sees now; they don't guarantee what happens next."].join("\n");
+  const seed = conversationSeed(conversationMessages, text);
+  const openings = [
+    "Yeah — here's the part that matters.",
+    "The reason is in the numbers.",
+    "That's coming from the live snapshot, not a guess.",
+    "Here's how I'd read the evidence.",
+    "The useful clue is the relationship data.",
+    "Right — the short version is that the measurements are doing the talking here.",
+    "That's a fair question. The current evidence points here:",
+    "Looking at the same snapshot, here's why I said that:",
+  ];
+  const opening = pick(openings, seed);
+  const evidence = pick([
+    `${symbol} is at ${money(price, symbol)}, ${change >= 0 ? "up" : "down"} ${Math.abs(change).toFixed(2)}% over 24h, with ${volume(vol)} traded in that window.`,
+    `The live read has ${symbol} at ${money(price, symbol)} with a ${change.toFixed(2)}% 24h move and ${volume(vol)} in 24h volume.`,
+    `Right now the snapshot is ${money(price, symbol)} for ${symbol}; the 24h move is ${change.toFixed(2)}% and volume is ${volume(vol)}.`,
+  ], seed + 1);
+  const engine = pick([
+    `Gizmo currently reads ${signal} / ${direction}, z-score ${zscore.toFixed(2)}${lag == null ? "" : `, lag ${lag}h`}${correlation == null ? "" : `, correlation ${correlation.toFixed(3)}`}.`,
+    `The engine is showing ${signal} with ${direction} direction; z-score ${zscore.toFixed(2)}${lag == null ? "" : ` and measured lag ${lag}h`}${correlation == null ? "" : `, with correlation ${correlation.toFixed(3)}`}.`,
+    `The lead-lag measurements are ${signal} / ${direction}, z-score ${zscore.toFixed(2)}${lag == null ? "" : `, lag ${lag}h`}${correlation == null ? "" : `, correlation ${correlation.toFixed(3)}`}.`,
+  ], seed + 2);
+  const close = pick([
+    "So the earlier read is based on those measurements. They describe what the engine sees now; they don't guarantee what happens next.",
+    "That supports the current read, but it isn't a prediction of the next move.",
+    "So I'm reading the present evidence, not claiming that the next candle has to follow it.",
+    "That's why I'd call the current state neutral rather than force a directional story onto the data.",
+  ], seed + 3);
+  return [opening, evidence, engine, close].join("\n");
 }
 
 async function answerRecentHistoryQuestion(symbol: Symbol) {
@@ -148,8 +235,8 @@ export const Route = createFileRoute("/api/chat")({ server: { handlers: { POST: 
 
     if (isRelationshipQuestion(userText) && (hasExplicitPair || contextPair)) return makeStreamResponse(await answerRelationshipQuestion(userText), body.messages);
     if (hasExplicitPair && isRecentHistoryQuestion(userText)) return makeStreamResponse(await answerRecentHistoryQuestion(extractPair(userText)!), body.messages);
-    if (hasExplicitPair && (isLiveMarketQuestion(userText) || isSignalsQuestion(userText))) return makeStreamResponse(isSignalsQuestion(userText) ? await answerSignalsQuestion(userText) : await answerLiveMarketQuestion(userText, selectedMarket), body.messages);
-    if (evidencePair && isFollowUp(userText)) return makeStreamResponse(await answerFollowUpQuestion(userText, evidencePair), body.messages);
+    if (hasExplicitPair && (isLiveMarketQuestion(userText) || isSignalsQuestion(userText) || isAboutMarketQuestion(userText))) return makeStreamResponse(isSignalsQuestion(userText) ? await answerSignalsQuestion(userText) : await answerLiveMarketQuestion(userText, selectedMarket, body.messages), body.messages);
+    if (evidencePair && isFollowUp(userText)) return makeStreamResponse(await answerFollowUpQuestion(userText, evidencePair, body.messages), body.messages);
 
     const messages = await convertToModelMessages(body.messages);
     const contextPrompt = [GIZMO_SYSTEM_PROMPT, selectedMarket ? `The user currently has ${selectedMarket} selected in the UI. Treat it as active context when their request is ambiguous.` : "", evidencePair ? `The current conversation is about ${evidencePair}.` : ""].filter(Boolean).join("\n\n");
