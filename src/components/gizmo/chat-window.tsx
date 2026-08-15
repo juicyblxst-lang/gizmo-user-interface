@@ -19,10 +19,49 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { GizmoCharacter, GizmoMark } from "@/components/gizmo/gizmo-avatar";
+import { LeadLagPanel } from "@/components/gizmo/lead-lag-panel";
 import type { MarketContext } from "@/lib/gizmo/market-context";
 import { cn } from "@/lib/utils";
 
 const transport = new DefaultChatTransport({ api: "/api/chat" });
+const SUPPORTED_PAIRS = ["BTC", "ETH", "SOL", "XRP", "DOGE", "HYPE"] as const;
+type Symbol = (typeof SUPPORTED_PAIRS)[number];
+
+function extractPair(text: string): Symbol | null {
+  const match = text.toUpperCase().match(/\b(BTC|ETH|SOL|XRP|DOGE|HYPE)\b/);
+  return match ? (match[1] as Symbol) : null;
+}
+
+function isMarketVisualizationQuestion(text: string) {
+  return /\b(doing|happening|going|now|currently|right now|price|market|ticker|worth|value|cost|how much|lead|leads|lag|follows|follower|relationship|correlation|z-?score|deviation)\b/i.test(text);
+}
+
+function isFollowUpQuestion(text: string) {
+  return /^(why|how|what do you mean|why is that|why do you think so|is that unusual|what about it|and what about that|explain|tell me more|how so|what does that mean|what happened|has it|did it)\b/i.test(text.trim());
+}
+
+function shouldShowLeadLagChart(messages: UIMessage[], messageIndex: number) {
+  const assistantMessage = messages[messageIndex];
+  if (!assistantMessage || assistantMessage.role !== "assistant") return false;
+
+  let referencedPair: Symbol | null = null;
+  let currentUserPrompt = "";
+
+  for (let index = messageIndex - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role !== "user") continue;
+    const text = message.parts
+      .map((part) => (part.type === "text" ? part.text : ""))
+      .join(" ")
+      .trim();
+    if (!currentUserPrompt) currentUserPrompt = text;
+    referencedPair = extractPair(text) ?? referencedPair;
+    if (referencedPair) break;
+  }
+
+  if (!referencedPair) return false;
+  return isMarketVisualizationQuestion(currentUserPrompt) || isFollowUpQuestion(currentUserPrompt);
+}
 
 export function ChatWindow({
   threadId,
@@ -72,10 +111,11 @@ export function ChatWindow({
 
   const body = useMemo(
     () =>
-      messages.map((message) => {
+      messages.map((message, index) => {
         const text = message.parts
           .map((part) => (part.type === "text" ? part.text : ""))
           .join("");
+        const showLeadLagChart = shouldShowLeadLagChart(messages, index);
 
         if (message.role === "user") {
           return (
@@ -90,9 +130,16 @@ export function ChatWindow({
         return (
           <Message from="assistant" key={message.id} className="items-start gap-3">
             <GizmoMark className="mt-1 size-6" />
-            <MessageContent className="bg-transparent p-0 text-foreground">
-              <MessageResponse>{text}</MessageResponse>
-            </MessageContent>
+            <div className="min-w-0 flex-1">
+              <MessageContent className="bg-transparent p-0 text-foreground">
+                <MessageResponse>{text}</MessageResponse>
+              </MessageContent>
+              {showLeadLagChart ? (
+                <div className="mt-4 overflow-hidden border-2 border-border">
+                  <LeadLagPanel market={`${extractPair(messages.slice(0, index).reverse().find((item) => item.role === "user")?.parts.map((part) => (part.type === "text" ? part.text : "")).join(" ") ?? "BTC") ?? "BTC"}/USDT` as MarketContext["market"]} />
+                </div>
+              ) : null}
+            </div>
           </Message>
         );
       }),
