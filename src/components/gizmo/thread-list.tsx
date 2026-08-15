@@ -4,10 +4,10 @@ import { ChevronDown, ChevronRight, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { GizmoThread } from "@/lib/gizmo/types";
 import { MARKETS, type MarketPair } from "@/lib/gizmo/markets";
-import { AboutPanel } from "@/components/gizmo/about-panel";
-import { DocsPanel } from "@/components/gizmo/docs-panel";
 
-export function ThreadList({ threads, activeId, onCreate, onDelete, onNavigate, selectedMarket, onSelectMarket }: {
+const GIZMO_X_URL = "https://x.com/_agent_gizmo_?s=11";
+
+export function ThreadList({ threads, activeId, onCreate, onDelete, onNavigate, selectedMarket, onSelectMarket, onOpenAbout, onOpenDocs }: {
   threads: GizmoThread[];
   activeId: string;
   onCreate: () => void;
@@ -15,11 +15,11 @@ export function ThreadList({ threads, activeId, onCreate, onDelete, onNavigate, 
   onNavigate?: () => void;
   selectedMarket: MarketPair | null;
   onSelectMarket: (market: MarketPair) => void;
+  onOpenAbout: () => void;
+  onOpenDocs: () => void;
 }) {
   const [marketsOpen, setMarketsOpen] = useState(true);
   const [resourcesOpen, setResourcesOpen] = useState(true);
-  const [aboutOpen, setAboutOpen] = useState(false);
-  const [docsOpen, setDocsOpen] = useState(false);
 
   return (
     <div className="flex h-full flex-col bg-sidebar">
@@ -37,15 +37,13 @@ export function ThreadList({ threads, activeId, onCreate, onDelete, onNavigate, 
       <div className="mt-4 border-t-2 border-sidebar-border px-2 pt-3">
         <button type="button" onClick={() => setResourcesOpen((open) => !open)} className="flex w-full items-center justify-between px-2 py-1 text-left" aria-expanded={resourcesOpen}><span className="text-pixel text-[9px] text-muted-foreground">Resources</span>{resourcesOpen ? <ChevronDown className="size-3 text-muted-foreground" /> : <ChevronRight className="size-3 text-muted-foreground" />}</button>
         {resourcesOpen && <div className="mt-1 space-y-0.5">
-          <button type="button" onClick={() => { setDocsOpen(true); onNavigate?.(); }} className="flex w-full cursor-pointer items-center px-2 py-1.5 text-left text-xs text-muted-foreground hover:text-foreground"><span className="mr-2 text-primary">·</span>DOCS</button>
+          <button type="button" onClick={() => { onOpenDocs(); onNavigate?.(); }} className="flex w-full cursor-pointer items-center px-2 py-1.5 text-left text-xs text-muted-foreground hover:text-foreground"><span className="mr-2 text-primary">·</span>DOCS</button>
           <ResourcePlaceholder label="TELEGRAM" />
-          <ResourcePlaceholder label="X" />
-          <button type="button" onClick={() => { setAboutOpen(true); onNavigate?.(); }} className="flex w-full cursor-pointer items-center px-2 py-1.5 text-left text-xs text-muted-foreground hover:text-foreground"><span className="mr-2 text-primary">·</span>ABOUT</button>
+          <a href={GIZMO_X_URL} target="_blank" rel="noopener noreferrer" onClick={onNavigate} className="flex w-full cursor-pointer items-center px-2 py-1.5 text-left text-xs text-muted-foreground hover:text-foreground"><span className="mr-2 text-primary">·</span>X</a>
+          <button type="button" onClick={() => { onOpenAbout(); onNavigate?.(); }} className="flex w-full cursor-pointer items-center px-2 py-1.5 text-left text-xs text-muted-foreground hover:text-foreground"><span className="mr-2 text-primary">·</span>ABOUT</button>
         </div>}
       </div>
       <div className="border-t-2 border-sidebar-border px-3 py-3"><p className="text-[10px] leading-relaxed text-muted-foreground">Sessions are stored locally in this browser.</p></div>
-      <AboutPanel open={aboutOpen} onClose={() => setAboutOpen(false)} />
-      <DocsPanel open={docsOpen} onClose={() => setDocsOpen(false)} />
     </div>
   );
 }
