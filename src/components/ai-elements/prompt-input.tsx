@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useState } from "react";
 import type { ChatStatus } from "ai";
+import { CornerDownLeftIcon } from "lucide-react";
 
 export type PromptInputMessage = { text?: string };
 
@@ -43,7 +44,6 @@ export function PromptInputFooter({ children, className, ...props }: React.HTMLA
 }
 
 export function PromptInputSubmit({ status, onClick, className, ...props }: { status?: ChatStatus; onClick?: () => void; className?: string; [key: string]: unknown }) {
-  const ctx = useContext(PromptInputCtx);
   const busy = status === "submitted" || status === "streaming";
   return (
     <button
@@ -52,7 +52,7 @@ export function PromptInputSubmit({ status, onClick, className, ...props }: { st
       onClick={busy ? onClick : undefined}
       {...props}
     >
-      {busy ? "Stop" : "Send"}
+      {busy ? "Stop" : <CornerDownLeftIcon aria-hidden="true" className="size-6" />}
     </button>
   );
 }
