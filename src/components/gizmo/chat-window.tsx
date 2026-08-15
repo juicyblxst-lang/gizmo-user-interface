@@ -19,9 +19,8 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { GizmoCharacter, GizmoMark } from "@/components/gizmo/gizmo-avatar";
-import { StatusIndicator, type GizmoStatus } from "@/components/gizmo/status-indicator";
-import { cn } from "@/lib/utils";
 import type { MarketContext } from "@/lib/gizmo/market-context";
+import { cn } from "@/lib/utils";
 
 const transport = new DefaultChatTransport({ api: "/api/chat" });
 
@@ -45,14 +44,6 @@ export function ChatWindow({
   });
 
   const busy = status === "submitted" || status === "streaming";
-
-  const gizmoStatus: GizmoStatus = error
-    ? "error"
-    : status === "submitted"
-      ? "thinking"
-      : status === "streaming"
-        ? "streaming"
-        : "idle";
 
   useEffect(() => {
     onMessagesChange(threadId, messages);
@@ -132,7 +123,7 @@ export function ChatWindow({
 
       <div className="border-t-2 border-border bg-terminal px-3 py-3 sm:px-4 sm:py-4">
         <div className="mx-auto w-full max-w-3xl">
-          <PromptInput onSubmit={handleSubmit} className="gizmo-transmit pixel-frame-inset bg-card">
+          <PromptInput onSubmit={handleSubmit} className="gizmo-transmit pixel-frame-inset relative bg-card">
             <PromptInputTextarea
               ref={textareaRef}
               autoFocus
@@ -140,8 +131,7 @@ export function ChatWindow({
               aria-label="Ask GIZMO"
               className="gizmo-transmit-textarea font-mono text-sm"
             />
-            <PromptInputFooter className="gizmo-transmit-footer items-center justify-between border-t-2 border-input px-3 py-3 sm:px-4 sm:py-3">
-              <StatusIndicator status={gizmoStatus} className="gizmo-status border-0 bg-transparent px-0 py-0" />
+            <PromptInputFooter className="gizmo-transmit-footer absolute bottom-3 right-3 z-10 flex items-center sm:bottom-4 sm:right-4">
               <PromptInputSubmit
                 status={status}
                 aria-label={busy ? "Stop transmission" : "Ask GIZMO"}
@@ -160,7 +150,7 @@ function EmptyState() {
   return (
     <div className="flex min-h-[46vh] flex-col items-center justify-center text-center">
       <GizmoCharacter className="w-40 opacity-70 sm:w-52" />
-      <p className="text-pixel mt-6 text-[11px] text-primary">GIZMO</p>
+      <p className="text-pixel mt-6 text-[15px] text-primary sm:text-[17px]">GIZMO</p>
       <p className="mt-3 max-w-sm text-xs leading-relaxed text-muted-foreground">
         Find the market that moves first. Trade the market that follows.
       </p>
