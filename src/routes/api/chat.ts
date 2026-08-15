@@ -82,7 +82,7 @@ const tools = {
         leaderModel: "BTC",
         measurements: selected.map(([key, value]) => ({
           pair: key,
-          leader: key.startsWith("BTC-") ? "BTC" : "BTC",
+          leader: "BTC",
           follower: key.replace("-USDT-SWAP", ""),
           lagHours: value.lag ?? null,
           correlation: value.correlation ?? null,
@@ -155,8 +155,27 @@ function isFollowUp(text: string) {
   return /^(why|how|what do you mean|why is that|why do you think so|is that unusual|what about it|and what about that|explain|tell me more|how so|what does that mean)\b/i.test(text.trim());
 }
 
+function isRecentHistoryQuestion(text: string) {
+  return /\b(last|past|previous|recent)\b.*\b(\d+\s*(minutes?|hours?|days?)|hour|hours|day|days)\b/i.test(text)
+    || /\b(\d+\s*(minutes?|hours?|days?))\b/i.test(text);
+}
+
 function isRelationshipQuestion(text: string) {
   return /\b(relationship|lead.?lag|leads?|follows?|lag|correlation|correlated|between|relative to)\b/i.test(text);
+}
+
+function makeStreamResponse(responseText: string, originalMessages: UIMessage[]) {
+  const stream = createUIMessageStream({
+    originalMessages,
+    generateId,
+    execute: ({ writer }) => {
+      const textId = generateId();
+      writer.write({ type: "text-start", id: textId });
+      writer.write({ type: "text-delta", id: textId, delta: responseText });
+      writer.write({ type: "text-end", id: textId });
+    },
+  });
+  return createUIMessageStreamResponse({ stream });
 }
 
 async function answerLiveMarketQuestion(text: string, selectedMarket: string | null) {
@@ -233,6 +252,58 @@ async function answerRelationshipQuestion(text: string) {
   ].join("\n");
 }
 
+async function answerFollowUpQuestion(text: string, symbol: Symbol) {
+  const [market, signals] = await Promise.all([
+    backendRequest(`/api/tools/market?pair=${encodeURIComponent(pair(symbol))}`),
+    backendRequest("/api/tools/signals"),
+  ]);
+
+  const record = signals && typeof signals === "object" && "pairs" in signals
+    ? (signals as { pairs?: Record<string, Record<string, unknown>> }).pairs?.[pair(symbol)]
+    : undefined;
+
+  const price = Number((market as { price?: number }).price ?? 0);
+  const change = Number((market as { change24h?: number }).change24h ?? 0);
+  const volume = Number((market as { volume24h?: number }).volume24h ?? 0);
+  const zscore = Number(record?.zscore ?? 0);
+  const direction = String(record?.direction ?? "NEUTRAL");
+  const signal = String(record?.signal ?? "UNKNOWN");
+  const lag = record?.lag == null ? null : Number(record.lag);
+  const correlation = record?.correlation == null ? null : Number(record.correlation);
+
+  if (/\b(unusual|normal|odd|extreme)\b/i.test(text)) {
+    return `${symbol} is not showing an unusual lead-lag deviation in the current engine snapshot: its z-score is ${zscore.toFixed(2)} and direction is ${direction}. The current signal state is ${signal}. A z-score near zero means the measured residual is close to its recent modeled level; it does not by itself predict the next move.`;
+  }
+
+  return [
+    `I’m basing that on fresh ${symbol} data, not a guess.`,
+    `${symbol} is currently at $${price.toLocaleString(undefined, { maximumFractionDigits: symbol === "BTC" ? 2 : 6 })}, with a 24h change of ${change.toFixed(2)}% and 24h volume of $${volume.toLocaleString(undefined, { maximumFractionDigits: 0 })}.`,
+    `The Gizmo engine currently classifies it as ${signal} with direction ${direction} and z-score ${zscore.toFixed(2)}${lag == null ? "" : `; measured lag ${lag}h`}${correlation == null ? "" : `; correlation ${correlation.toFixed(3)}`}.`,
+    `So the reason for the earlier description is the current measured evidence: the market data is relatively flat on the 24h view, while the engine is not flagging a directional statistical deviation. That is an observation, not a prediction.`,
+  ].join("\n");
+}
+
+async function answerRecentHistoryQuestion(text: string, symbol: Symbol) {
+  const data = await backendRequest(`/api/tools/history?limit=50`);
+  if (!Array.isArray(data) || data.length === 0) {
+    return `I can’t give you a factual ${symbol} historical summary for that period yet because Gizmo’s signal-history store has no recorded signals available. I won’t invent the last-four-hours behavior. The live ${symbol} market endpoint is available, but that is not the same thing as a four-hour historical series.`;
+  }
+
+  const backendPair = pair(symbol);
+  const records = data.filter((item: unknown) => {
+    if (!item || typeof item !== "object") return false;
+    const record = item as Record<string, unknown>;
+    const value = record.pair ?? record.instId ?? record.symbol;
+    return value === symbol || value === backendPair;
+  });
+
+  if (records.length === 0) {
+    return `Gizmo has recorded history, but none of the available records are for ${symbol}. I won’t substitute another asset’s data.`;
+  }
+
+  return `Gizmo has ${records.length} recorded ${symbol} signal observations available. I can summarize those recorded observations, but I cannot claim they represent exactly the last four hours unless their timestamps establish that window.`;
+}
+
 export const Route = createFileRoute("/api/chat")({
   server: {
     handlers: {
@@ -250,64 +321,37 @@ export const Route = createFileRoute("/api/chat")({
             .trim() ?? "";
           const contextPair = extractLastReferencedPair(body.messages, selectedMarket);
           const hasExplicitPair = !!extractPair(userText);
+          const evidencePair = contextPair ?? (selectedMarket ? extractPair(selectedMarket) : null);
 
           if (isRelationshipQuestion(userText) && (hasExplicitPair || contextPair)) {
             const responseText = await answerRelationshipQuestion(userText || `relationship with ${contextPair}`);
-            const stream = createUIMessageStream({
-              originalMessages: body.messages,
-              generateId,
-              execute: ({ writer }) => {
-                const textId = generateId();
-                writer.write({ type: "text-start", id: textId });
-                writer.write({ type: "text-delta", id: textId, delta: responseText });
-                writer.write({ type: "text-end", id: textId });
-              },
-            });
-            return createUIMessageStreamResponse({ stream });
+            return makeStreamResponse(responseText, body.messages);
+          }
+
+          if (hasExplicitPair && isRecentHistoryQuestion(userText)) {
+            const responseText = await answerRecentHistoryQuestion(userText, extractPair(userText)!);
+            return makeStreamResponse(responseText, body.messages);
           }
 
           if (hasExplicitPair && (isLiveMarketQuestion(userText) || isSignalsQuestion(userText))) {
             const responseText = isSignalsQuestion(userText)
               ? await answerSignalsQuestion(userText)
               : await answerLiveMarketQuestion(userText, selectedMarket);
-
-            const stream = createUIMessageStream({
-              originalMessages: body.messages,
-              generateId,
-              execute: ({ writer }) => {
-                const textId = generateId();
-                writer.write({ type: "text-start", id: textId });
-                writer.write({ type: "text-delta", id: textId, delta: responseText });
-                writer.write({ type: "text-end", id: textId });
-              },
-            });
-            return createUIMessageStreamResponse({ stream });
+            return makeStreamResponse(responseText, body.messages);
           }
 
-          // Follow-ups retain the last referenced asset and receive fresh evidence.
-          // The model is then responsible for explaining that evidence in context.
-          const evidencePair = contextPair ?? (selectedMarket ? extractPair(selectedMarket) : null);
-          let verifiedContext = "";
+          // Contextual follow-ups are handled directly from fresh backend evidence.
+          // This keeps the factual conversation working even when the optional AI gateway is unavailable.
           if (evidencePair && isFollowUp(userText)) {
-            const [market, signals] = await Promise.all([
-              backendRequest(`/api/tools/market?pair=${encodeURIComponent(pair(evidencePair))}`),
-              backendRequest("/api/tools/signals"),
-            ]);
-            verifiedContext = [
-              `CONVERSATION SUBJECT: ${evidencePair}`,
-              "FRESH VERIFIED MARKET EVIDENCE:",
-              JSON.stringify(market),
-              "FRESH VERIFIED SIGNAL EVIDENCE:",
-              JSON.stringify(signals),
-              "Use this evidence to answer the follow-up. Explain reasoning, but do not invent facts or numbers. If the evidence does not support a conclusion, say so.",
-            ].join("\n");
+            const responseText = await answerFollowUpQuestion(userText, evidencePair);
+            return makeStreamResponse(responseText, body.messages);
           }
 
           const messages = await convertToModelMessages(body.messages);
           const contextPrompt = [
             GIZMO_SYSTEM_PROMPT,
             selectedMarket ? `The user currently has ${selectedMarket} selected in the UI. Treat it as active context when their request is ambiguous.` : "",
-            verifiedContext,
+            evidencePair ? `The current conversation is about ${evidencePair}.` : "",
           ].filter(Boolean).join("\n\n");
 
           const result = streamText({
