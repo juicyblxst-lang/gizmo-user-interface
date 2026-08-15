@@ -7,6 +7,8 @@ import { Menu, X } from "lucide-react";
 import { ChatWindow } from "@/components/gizmo/chat-window";
 import { GizmoMark } from "@/components/gizmo/gizmo-avatar";
 import { ThreadList } from "@/components/gizmo/thread-list";
+import { AboutPanel } from "@/components/gizmo/about-panel";
+import { DocsPanel } from "@/components/gizmo/docs-panel";
 import { GIZMO_NAME, GIZMO_VERSION } from "@/lib/gizmo/config";
 import { useThreads } from "@/lib/gizmo/use-threads";
 import { cn } from "@/lib/utils";
@@ -18,6 +20,8 @@ export function Workspace({ threadId }: { threadId: string }) {
   const { threads, ensureThread, createThread, deleteThread, saveMessages } = useThreads();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [marketContext, setMarketContext] = useState<MarketContext | null>(null);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [docsOpen, setDocsOpen] = useState(false);
 
   useEffect(() => {
     ensureThread(threadId);
@@ -37,6 +41,16 @@ export function Workspace({ threadId }: { threadId: string }) {
     if (id !== threadId) return;
     void navigate({ to: "/" });
   }, [deleteThread, navigate, threadId]);
+
+  const handleOpenAbout = useCallback(() => {
+    setDocsOpen(false);
+    setAboutOpen(true);
+  }, []);
+
+  const handleOpenDocs = useCallback(() => {
+    setAboutOpen(false);
+    setDocsOpen(true);
+  }, []);
 
   return (
     <div className="flex h-dvh flex-col bg-background">
@@ -66,6 +80,8 @@ export function Workspace({ threadId }: { threadId: string }) {
               setMarketContext({ market, timeframe: "1h" });
               setMobileNavOpen(false);
             }}
+            onOpenAbout={handleOpenAbout}
+            onOpenDocs={handleOpenDocs}
           />
         </aside>
 
@@ -79,6 +95,9 @@ export function Workspace({ threadId }: { threadId: string }) {
           )}
         </main>
       </div>
+
+      <AboutPanel open={aboutOpen} onClose={() => setAboutOpen(false)} />
+      <DocsPanel open={docsOpen} onClose={() => setDocsOpen(false)} />
     </div>
   );
 }
