@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { streamText, tool, convertToModelMessages, type UIMessage } from "ai";
+import { convertToModelMessages, streamText, tool, type UIMessage } from "ai";
 import { z } from "zod";
 import { GIZMO_MODEL, GIZMO_SYSTEM_PROMPT } from "@/lib/gizmo/config";
 
@@ -12,17 +12,30 @@ const gateway = createOpenAICompatible({
 
 const model = gateway.chatModel(GIZMO_MODEL);
 
-type BackendPair = "BTC-USDT-SWAP" | "ETH-USDT-SWAP" | "SOL-USDT-SWAP" | "XRP-USDT-SWAP" | "DOGE-USDT-SWAP" | "HYPE-USDT-SWAP";
-const pair = (symbol: string) => `${symbol}-USDT-SWAP` as BackendPair;
+const SUPPORTED_PAIRS = ["BTC", "ETH", "SOL", "XRP", "DOGE", "HYPE"] as const;
+type Symbol = (typeof SUPPORTED_PAIRS)[number];
+const pair = (symbol: Symbol) => `${symbol}-USDT-SWAP`;
 
 async function backendRequest(path: string, init?: RequestInit) {
   const base = process.env.GIZMO_BACKEND_URL;
   if (!base) throw new Error("GIZMO_BACKEND_URL is not configured");
+
   const response = await fetch(new URL(path, `${base.replace(/\/$/, "")}/`), init);
   const text = await response.text();
   let data: unknown;
-  try { data = JSON.parse(text); } catch { data = { error: text || `Backend returned HTTP ${response.status}` }; }
-  if (!response.ok) throw new Error(typeof data === "object" && data && "error" in data ? String((data as { error: unknown }).error) : `Backend returned HTTP ${response.status}`);
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = { error: text || `Backend returned HTTP ${response.status}` };
+  }
+
+  if (!response.ok) {
+    const message = typeof data === "object" && data && "error" in data
+      ? String((data as { error: unknown }).error)
+      : `Backend returned HTTP ${response.status}`;
+    throw new Error(message);
+  }
+
   return data;
 }
 
@@ -32,20 +45,41 @@ const tools = {
     inputSchema: z.object({}),
     execute: async () => backendRequest("/api/tools/signals"),
   }),
+
   getMarketData: tool({
     description: "Get current price, 24h volume, high/low, and change for a specific pair.",
-    inputSchema: z.object({ pair: z.enum(["BTC", "ETH", "SOL", "XRP", "DOGE", "HYPE"]) }),
+    inputSchema: z.object({ pair: z.enum(SUPPORTED_PAIRS) }),
     execute: async ({ pair: symbol }) => backendRequest(`/api/tools/market?pair=${encodeURIComponent(pair(symbol))}`),
   }),
+
   getHistory: tool({
-    description: "Get past recorded signals, most recent first.",
-    inputSchema: z.object({ limit: z.number().min(1).max(50).default(10), pair: z.enum(["BTC", "ETH", "SOL", "XRP", "DOGE", "HYPE"]).optional() }),
-    execute: async ({ limit, pair: symbol }) => backendRequest(`/api/tools/history?limit=${limit}${symbol ? `&pair=${encodeURIComponent(pair(symbol))}` : ""}`),
+    description: "Get past recorded signals, most recent first. Optionally filter to one pair.",
+    inputSchema: z.object({
+      limit: z.number().min(1).max(50).default(10),
+      pair: z.enum(SUPPORTED_PAIRS).optional(),
+    }),
+    execute: async ({ limit, pair: symbol }) => {
+      const data = await backendRequest(`/api/tools/history?limit=${limit}`);
+      if (!symbol || !Array.isArray(data)) return data;
+
+      const backendPair = pair(symbol);
+      return data.filter((item: unknown) => {
+        if (!item || typeof item !== "object") return false;
+        const record = item as Record<string, unknown>;
+        const value = record.pair ?? record.instId ?? record.symbol;
+        return value === symbol || value === backendPair;
+      });
+    },
   }),
+
   monitorPair: tool({
-    description: "Add a pair to the watchlist.",
-    inputSchema: z.object({ pair: z.enum(["BTC", "ETH", "SOL", "XRP", "DOGE", "HYPE"]) }),
-    execute: async ({ pair: symbol }) => backendRequest("/api/tools/monitor", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pair: pair(symbol) }) }),
+    description: "Add a pair to the backend watchlist.",
+    inputSchema: z.object({ pair: z.enum(SUPPORTED_PAIRS) }),
+    execute: async ({ pair: symbol }) => backendRequest("/api/tools/monitor", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pair: pair(symbol) }),
+    }),
   }),
 };
 
@@ -54,13 +88,34 @@ export const Route = createFileRoute("/api/chat")({
     handlers: {
       POST: async ({ request }) => {
         try {
-          const body = (await request.json()) as { messages: UIMessage[] };
+          const body = (await request.json()) as {
+            messages: UIMessage[];
+            marketContext?: { market?: string | null } | null;
+          };
           const messages = await convertToModelMessages(body.messages);
-          const result = streamText({ model, system: GIZMO_SYSTEM_PROMPT, messages, tools, stopWhen: ({ steps }) => steps.length >= 5 });
+
+          const selectedMarket = body.marketContext?.market ?? null;
+          const contextPrompt = selectedMarket
+            ? `${GIZMO_SYSTEM_PROMPT}\n\nThe user currently has ${selectedMarket} selected in the UI. Treat that as the active market context when their request is ambiguous, but still call the relevant live tool before stating any market data.`
+            : GIZMO_SYSTEM_PROMPT;
+
+          const result = streamText({
+            model,
+            system: contextPrompt,
+            messages,
+            tools,
+            stopWhen: ({ steps }) => steps.length >= 5,
+          });
+
           return result.toUIMessageStreamResponse();
         } catch (error) {
           console.error("GIZMO chat error:", error);
-          return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Server error" }), { status: 503, headers: { "content-type": "application/json" } });
+          return new Response(JSON.stringify({
+            error: error instanceof Error ? error.message : "Server error",
+          }), {
+            status: 503,
+            headers: { "content-type": "application/json" },
+          });
         }
       },
     },
