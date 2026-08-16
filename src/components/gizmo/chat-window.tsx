@@ -1,8 +1,7 @@
 "use client";
 
-import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, type UIMessage } from "ai";
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { UIMessage } from "ai";
 
 import {
   Conversation,
@@ -24,9 +23,22 @@ import type { MarketPair } from "@/lib/gizmo/markets";
 import type { MarketContext } from "@/lib/gizmo/market-context";
 import { cn } from "@/lib/utils";
 
-const transport = new DefaultChatTransport({ api: "/api/chat" });
 const SUPPORTED_PAIRS = ["BTC", "ETH", "SOL", "XRP", "DOGE", "HYPE"] as const;
 type Symbol = (typeof SUPPORTED_PAIRS)[number];
+
+function messageId() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function textMessage(id: string, role: "user" | "assistant", text: string): UIMessage {
+  return {
+    id,
+    role,
+    parts: [{ type: "text", text }],
+  } as UIMessage;
+}
 
 function extractPair(text: string): Symbol | null {
   const match = text.toUpperCase().match(/\b(BTC|ETH|SOL|XRP|DOGE|HYPE)\b/);
@@ -73,6 +85,21 @@ function shouldShowLeadLagChart(messages: UIMessage[], messageIndex: number) {
   return Boolean(extractPair(text)) && (isMarketVisualizationQuestion(text) || isFollowUpQuestion(text));
 }
 
+function parseStreamChunk(raw: string): { delta?: string; error?: string } | null {
+  try {
+    const event = JSON.parse(raw) as Record<string, unknown>;
+    if (event.type === "text-delta" && typeof event.delta === "string") {
+      return { delta: event.delta };
+    }
+    if (event.type === "error") {
+      return { error: typeof event.errorText === "string" ? event.errorText : "GIZMO could not complete that transmission." };
+    }
+  } catch {
+    // Ignore non-JSON stream lines.
+  }
+  return null;
+}
+
 export function ChatWindow({
   threadId,
   initialMessages,
@@ -85,12 +112,10 @@ export function ChatWindow({
   onMessagesChange: (id: string, messages: UIMessage[]) => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-
-  const { messages, sendMessage, status, error, stop } = useChat({
-    id: threadId,
-    messages: initialMessages,
-    transport,
-  });
+  const abortRef = useRef<AbortController | null>(null);
+  const [messages, setMessages] = useState<UIMessage[]>(initialMessages);
+  const [status, setStatus] = useState<"ready" | "submitted" | "streaming" | "error">("ready");
+  const [error, setError] = useState<string | null>(null);
 
   const busy = status === "submitted" || status === "streaming";
 
@@ -102,16 +127,112 @@ export function ChatWindow({
     if (!busy) textareaRef.current?.focus();
   }, [busy, threadId]);
 
-  const isEmpty = messages.length === 0;
+  useEffect(() => () => abortRef.current?.abort(), []);
 
-  const handleSubmit = (message: PromptInputMessage) => {
+  const updateAssistantText = useCallback((id: string, text: string) => {
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === id
+          ? textMessage(id, "assistant", text)
+          : message,
+      ),
+    );
+  }, []);
+
+  const transmit = useCallback(async (outgoing: UIMessage[], assistantId: string) => {
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
+
+    try {
+      setStatus("submitted");
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messages: outgoing, marketContext }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        let detail = "GIZMO could not complete that transmission.";
+        try {
+          const data = (await response.json()) as { error?: string };
+          if (data.error) detail = data.error;
+        } catch {
+          // Keep the friendly fallback.
+        }
+        throw new Error(detail);
+      }
+
+      if (!response.body) throw new Error("GIZMO returned an empty transmission.");
+
+      setStatus("streaming");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let assistantText = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data:")) continue;
+          const parsed = parseStreamChunk(line.slice(5).trim());
+          if (!parsed) continue;
+          if (parsed.error) throw new Error(parsed.error);
+          if (parsed.delta) {
+            assistantText += parsed.delta;
+            updateAssistantText(assistantId, assistantText);
+          }
+        }
+      }
+
+      if (!assistantText.trim()) {
+        throw new Error("GIZMO returned no text. Try the question again.");
+      }
+      setStatus("ready");
+    } catch (cause) {
+      const message = cause instanceof Error && cause.name === "AbortError"
+        ? "GIZMO timed out waiting for the backend. The interface is still responsive — try again."
+        : cause instanceof Error
+          ? cause.message
+          : "GIZMO could not complete that transmission.";
+      setError(message);
+      setStatus("error");
+      setMessages((current) => current.filter((item) => item.id !== assistantId));
+    } finally {
+      window.clearTimeout(timeout);
+      if (abortRef.current === controller) abortRef.current = null;
+    }
+  }, [marketContext, updateAssistantText]);
+
+  const handleSubmit = useCallback((message: PromptInputMessage) => {
     const text = message.text?.trim();
     if (!text || busy) return;
-    void sendMessage({ text, body: { marketContext } });
-  };
 
+    setError(null);
+    const userMessage = textMessage(messageId(), "user", text);
+    const assistantId = messageId();
+    const assistantMessage = textMessage(assistantId, "assistant", "");
+    const outgoing = [...messages, userMessage];
+
+    setMessages([...outgoing, assistantMessage]);
+    void transmit(outgoing, assistantId);
+  }, [busy, messages, transmit]);
+
+  const stop = useCallback(() => {
+    abortRef.current?.abort();
+    setStatus("ready");
+  }, []);
+
+  const isEmpty = messages.length === 0;
   const lastMessage = messages[messages.length - 1];
-  const awaitingFirstToken = status === "submitted" || (lastMessage?.role === "user" && busy);
+  const awaitingFirstToken = status === "submitted" || (lastMessage?.role === "assistant" && !lastMessage.parts.some((part) => part.type === "text" && part.text));
 
   const body = useMemo(
     () =>
@@ -166,7 +287,7 @@ export function ChatWindow({
 
           {error ? (
             <p className="mt-4 border-2 border-destructive bg-terminal px-3 py-2 text-xs text-destructive">
-              Link failure — GIZMO could not complete that transmission. Try again.
+              {error}
             </p>
           ) : null}
         </ConversationContent>
@@ -187,7 +308,7 @@ export function ChatWindow({
               <PromptInputSubmit
                 status={status}
                 aria-label={busy ? "Stop transmission" : "Ask GIZMO"}
-                onClick={busy ? () => void stop() : undefined}
+                onClick={busy ? stop : undefined}
                 className="gizmo-transmit-button"
               />
             </PromptInputFooter>
