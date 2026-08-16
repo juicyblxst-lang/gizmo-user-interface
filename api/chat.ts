@@ -2,14 +2,14 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { convertToModelMessages, streamText, tool, type UIMessage } from "ai";
 import { z } from "zod";
 
-const BACKEND_URL = process.env.GIZMO_BACKEND_URL;
-const API_KEY = process.env.AI_GATEWAY_API_KEY;
+const BACKEND_URL = process.env["GIZMO_BACKEND_URL"];
+const API_KEY = process.env["AI_GATEWAY_API_KEY"];
 const MODEL = "google/gemini-3.6-flash";
 
 const gateway = createOpenAICompatible({
   name: "vercel-ai-gateway",
   baseURL: "https://ai-gateway.vercel.sh/v1",
-  apiKey: API_KEY,
+  ...(API_KEY ? { apiKey: API_KEY } : {}),
 });
 
 const PAIRS = ["BTC", "ETH", "SOL", "XRP", "DOGE", "HYPE"] as const;
@@ -38,7 +38,7 @@ async function backend(path: string, init?: RequestInit) {
   let data: unknown;
   try { data = JSON.parse(text); } catch { data = { error: text || `Backend returned HTTP ${response.status}` }; }
   if (!response.ok) throw new Error(typeof data === "object" && data && "error" in data ? String((data as { error: unknown }).error) : `Backend returned HTTP ${response.status}`);
-  if (data && typeof data === "object" && "error" in data && (data as { error?: unknown }).error) throw new Error(String((data as { error: unknown }).error));
+  if (data && typeof data === "object" && "error" in data && (data as { error?: unknown })["error"]) throw new Error(String((data as { error: unknown })["error"]));
   return data;
 }
 
@@ -66,7 +66,8 @@ const tools = {
       if (!symbol || !Array.isArray(data)) return data;
       return data.filter((item: unknown) => {
         if (!item || typeof item !== "object") return false;
-        const value = (item as Record<string, unknown>).pair ?? (item as Record<string, unknown>).instId ?? (item as Record<string, unknown>).symbol;
+        const record = item as Record<string, unknown>;
+        const value = record["pair"] ?? record["instId"] ?? record["symbol"];
         return value === symbol || value === pair(symbol);
       });
     },
