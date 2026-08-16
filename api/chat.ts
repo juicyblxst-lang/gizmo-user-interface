@@ -1,5 +1,5 @@
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 20;
 
 const BACKEND_URL = (process.env["GIZMO_BACKEND_URL"] || "https://gizmo-backend-zkft.onrender.com").replace(/\/$/, "");
 const PAIRS = ["BTC", "ETH", "SOL", "XRP", "DOGE", "HYPE"] as const;
@@ -8,30 +8,25 @@ const SYMBOL_ALIASES: Record<string, Symbol> = { BTC: "BTC", BITCOIN: "BTC", ETH
 
 function symbolFromText(text: string): Symbol | null {
   const match = text.toUpperCase().match(/\b(BTC|BITCOIN|ETH|ETHEREUM|SOL|SOLANA|XRP|DOGE|DOGECOIN|HYPE)\b/);
-  if (!match) return null;
-  return SYMBOL_ALIASES[match[1] ?? ""] ?? null;
+  return match ? SYMBOL_ALIASES[match[1] ?? ""] ?? null : null;
 }
 function pair(symbol: Symbol) { return `${symbol}-USDT-SWAP`; }
 function textOf(message: any) { return Array.isArray(message?.parts) ? message.parts.map((part: any) => part?.type === "text" ? part.text : "").join("") : typeof message?.content === "string" ? message.content : ""; }
+function isMarketQuestion(text: string) { return /\b(btc|bitcoin|eth|ethereum|sol|solana|xrp|doge|dogecoin|hype|market|price|lead|lag|correlation|signal|z-?score|doing|happening|going|now|currently|right now)\b/i.test(text); }
 
-async function backend(path: string, timeoutMs: number, retries = 1) {
-  let lastError: unknown;
-  for (let attempt = 0; attempt <= retries; attempt += 1) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const response = await fetch(`${BACKEND_URL}${path}`, { signal: controller.signal, cache: "no-store", headers: { accept: "application/json" } });
-      const raw = await response.text();
-      let data: any;
-      try { data = JSON.parse(raw); } catch { throw new Error(raw || `Backend HTTP ${response.status}`); }
-      if (!response.ok || data?.error) throw new Error(data?.error || `Backend HTTP ${response.status}`);
-      return data;
-    } catch (error) {
-      lastError = error instanceof Error && error.name === "AbortError" ? new Error(`Render request timed out after ${timeoutMs / 1000}s`) : error;
-      if (attempt < retries) await new Promise((resolve) => setTimeout(resolve, 500));
-    } finally { clearTimeout(timer); }
+async function backend(path: string, timeoutMs: number) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${BACKEND_URL}${path}`, { signal: controller.signal, cache: "no-store", headers: { accept: "application/json" } });
+    const raw = await response.text();
+    let data: any;
+    try { data = JSON.parse(raw); } catch { throw new Error(raw || `Render HTTP ${response.status}`); }
+    if (!response.ok || data?.error) throw new Error(data?.error || `Render HTTP ${response.status}`);
+    return data;
+  } finally {
+    clearTimeout(timer);
   }
-  throw lastError instanceof Error ? lastError : new Error("Render request failed");
 }
 
 function stableVariant(prompt: string, symbol: Symbol) { let hash = 0; for (const char of `${symbol}:${prompt}`) hash = (hash * 31 + char.charCodeAt(0)) >>> 0; return hash % 4; }
@@ -58,18 +53,29 @@ export default async function handler(request: Request) {
     const body = await request.json();
     const messages = Array.isArray(body?.messages) ? body.messages : [];
     const latest = textOf(messages[messages.length - 1]);
+
+    if (!isMarketQuestion(latest)) {
+      return new Response(JSON.stringify({ text: "Hey — I'm GIZMO. Ask me about BTC, ETH, SOL, XRP, DOGE, HYPE, or the lead-lag relationships between them." }), { status: 200, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
+    }
+
     let symbol = symbolFromText(latest);
     if (!symbol) for (let i = messages.length - 2; i >= 0; i -= 1) { symbol = symbolFromText(textOf(messages[i])); if (symbol) break; }
     if (!symbol) symbol = "BTC";
 
-    const market = await backend(`/api/tools/market?pair=${encodeURIComponent(pair(symbol))}`, 12000, 2);
-    let signals: any = null;
-    try {
-      signals = await backend("/api/tools/signals", 25000, 1);
-    } catch (error) {
-      console.warn("GIZMO signal refresh unavailable; returning live market evidence:", error);
+    // Keep both existing intelligence calls bounded and concurrent. A slow Render signal refresh
+    // must never block the live market response or the browser's 30s chat timeout.
+    const [marketResult, signalResult] = await Promise.allSettled([
+      backend(`/api/tools/market?pair=${encodeURIComponent(pair(symbol))}`, 8000),
+      backend("/api/tools/signals", 10000),
+    ]);
+
+    if (marketResult.status === "rejected") {
+      const reason = marketResult.reason instanceof Error ? marketResult.reason.message : "Live market data unavailable";
+      return new Response(JSON.stringify({ error: `GIZMO could not reach live market data: ${reason}` }), { status: 503, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
     }
 
+    const market = marketResult.value;
+    const signals = signalResult.status === "fulfilled" ? signalResult.value : null;
     const signal = signals?.pairs?.[pair(symbol)] ?? signals?.pairs?.[symbol] ?? {};
     const hasConversation = messages.some((message: any) => message?.role === "assistant");
     const answer = naturalAnswer(symbol, market, signal, latest, hasConversation);
