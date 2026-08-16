@@ -37,8 +37,16 @@ async function backend(path: string, init?: RequestInit) {
   const text = await response.text();
   let data: unknown;
   try { data = JSON.parse(text); } catch { data = { error: text || `Backend returned HTTP ${response.status}` }; }
-  if (!response.ok) throw new Error(typeof data === "object" && data && "error" in data ? String((data as { error: unknown }).error) : `Backend returned HTTP ${response.status}`);
-  if (data && typeof data === "object" && "error" in data && (data as { error?: unknown })["error"]) throw new Error(String((data as { error: unknown })["error"]));
+  if (!response.ok) {
+    throw new Error(
+      typeof data === "object" && data && "error" in data
+        ? String((data as { error: unknown })["error"])
+        : `Backend returned HTTP ${response.status}`,
+    );
+  }
+  if (data && typeof data === "object" && "error" in data && (data as { error?: unknown })["error"]) {
+    throw new Error(String((data as { error: unknown })["error"]));
+  }
   return data;
 }
 
@@ -76,12 +84,17 @@ const tools = {
 
 export default async function handler(request: Request) {
   if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
+
   try {
-    const body = await request.json() as { messages?: UIMessage[]; marketContext?: { market?: string | null } | null };
+    const body = await request.json() as {
+      messages?: UIMessage[];
+      marketContext?: { market?: string | null } | null;
+    };
     const uiMessages = body.messages ?? [];
     const selectedMarket = body.marketContext?.market ?? null;
     const context = selectedMarket ? `The user currently has ${selectedMarket} selected in the UI.` : "";
     const messages = await convertToModelMessages(uiMessages);
+
     const result = streamText({
       model: gateway.chatModel(MODEL),
       system: `${SYSTEM}\n${context}`,
@@ -89,12 +102,26 @@ export default async function handler(request: Request) {
       tools,
       stopWhen: ({ steps }) => steps.length >= 5,
     });
-    return result.toUIMessageStreamResponse();
+
+    // Deliberately return one completed JSON response instead of a UI message stream.
+    // This avoids browser/server streaming edge cases while preserving the same model,
+    // backend tools, multi-step tool execution, and natural responses.
+    const text = await result.text;
+
+    return new Response(JSON.stringify({ text }), {
+      status: 200,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+      },
+    });
   } catch (error) {
     console.error("GIZMO deployed chat error:", error);
-    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "GIZMO chat failed" }), {
+    return new Response(JSON.stringify({
+      error: error instanceof Error ? error.message : "GIZMO chat failed",
+    }), {
       status: 503,
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json; charset=utf-8" },
     });
   }
 }
