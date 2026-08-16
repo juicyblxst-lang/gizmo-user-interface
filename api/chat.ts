@@ -8,7 +8,8 @@ const SYMBOL_ALIASES: Record<string, Symbol> = { BTC: "BTC", BITCOIN: "BTC", ETH
 
 function symbolFromText(text: string): Symbol | null {
   const match = text.toUpperCase().match(/\b(BTC|BITCOIN|ETH|ETHEREUM|SOL|SOLANA|XRP|DOGE|DOGECOIN|HYPE)\b/);
-  return match ? SYMBOL_ALIASES[match[1]] : null;
+  if (!match) return null;
+  return SYMBOL_ALIASES[match[1] ?? ""] ?? null;
 }
 function pair(symbol: Symbol) { return `${symbol}-USDT-SWAP`; }
 function textOf(message: any) { return Array.isArray(message?.parts) ? message.parts.map((part: any) => part?.type === "text" ? part.text : "").join("") : typeof message?.content === "string" ? message.content : ""; }
@@ -61,9 +62,6 @@ export default async function handler(request: Request) {
     if (!symbol) for (let i = messages.length - 2; i >= 0; i -= 1) { symbol = symbolFromText(textOf(messages[i])); if (symbol) break; }
     if (!symbol) symbol = "BTC";
 
-    // Market data is the hard requirement for a live answer. Signal generation is
-    // allowed to be slower because the chart endpoint independently proves the
-    // lead-lag calculation. This prevents a slow signal refresh from killing chat.
     const market = await backend(`/api/tools/market?pair=${encodeURIComponent(pair(symbol))}`, 12000, 2);
     let signals: any = null;
     try {
