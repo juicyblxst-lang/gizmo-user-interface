@@ -1,31 +1,29 @@
-const BACKEND_URL = process.env["GIZMO_BACKEND_URL"];
+export const runtime = "nodejs";
+export const maxDuration = 15;
+
+const BACKEND_URL = (process.env["GIZMO_BACKEND_URL"] || "https://gizmo-backend-zkft.onrender.com").replace(/\/$/, "");
 const PAIRS = ["BTC", "ETH", "SOL", "XRP", "DOGE", "HYPE"] as const;
 type Symbol = (typeof PAIRS)[number];
 
 const SYMBOL_ALIASES: Record<string, Symbol> = {
-  BTC: "BTC", BITCOIN: "BTC",
-  ETH: "ETH", ETHEREUM: "ETH",
-  SOL: "SOL", SOLANA: "SOL",
-  XRP: "XRP",
-  DOGE: "DOGE", DOGECOIN: "DOGE",
-  HYPE: "HYPE",
+  BTC: "BTC", BITCOIN: "BTC", ETH: "ETH", ETHEREUM: "ETH", SOL: "SOL", SOLANA: "SOL",
+  XRP: "XRP", DOGE: "DOGE", DOGECOIN: "DOGE", HYPE: "HYPE",
 };
 
 function symbolFromText(text: string): Symbol | null {
   const match = text.toUpperCase().match(/\b(BTC|BITCOIN|ETH|ETHEREUM|SOL|SOLANA|XRP|DOGE|DOGECOIN|HYPE)\b/);
   return match ? SYMBOL_ALIASES[match[1]] : null;
 }
-
 function pair(symbol: Symbol) { return `${symbol}-USDT-SWAP`; }
 
-async function backend(path: string) {
-  if (!BACKEND_URL) throw new Error("GIZMO_BACKEND_URL is not configured");
+async function backend(path: string, timeoutMs = 7000) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(new URL(path, `${BACKEND_URL.replace(/\/$/, "")}/`), {
+    const response = await fetch(`${BACKEND_URL}${path}`, {
       signal: controller.signal,
       cache: "no-store",
+      headers: { accept: "application/json" },
     });
     const text = await response.text();
     let data: any;
@@ -47,7 +45,7 @@ function stableVariant(prompt: string, symbol: Symbol) {
   return hash % 4;
 }
 
-function naturalAnswer(symbol: Symbol, market: any, signal: any, prompt: string, previousAssistant: string) {
+function naturalAnswer(symbol: Symbol, market: any, signal: any, prompt: string, hasConversation: boolean) {
   const price = market?.price;
   const change = market?.change24h;
   const low = market?.low24h;
@@ -59,43 +57,40 @@ function naturalAnswer(symbol: Symbol, market: any, signal: any, prompt: string,
   const state = signal?.signal ?? "UNKNOWN";
   const lower = prompt.toLowerCase();
   const variant = stableVariant(prompt, symbol);
-  const followUp = /^(why|how|what do you mean|why do you think|is that|what about|explain|tell me more|how so|what happened|has it|did it)\b/i.test(prompt.trim());
+  const followUp = hasConversation || /^(why|how|what do you mean|why do you think|is that|what about|explain|tell me more|how so|what happened|has it|did it)\b/i.test(prompt.trim());
   const leadQuestion = /\b(lead|leading|lag|follows|follower|correlation|relationship)\b/i.test(lower);
   const recentQuestion = /\b(last|past|recent|hours?|30m|1h|4h|15m)\b/i.test(lower);
 
   if (leadQuestion) {
     const relationship = typeof signal?.correlation === "number" ? `correlation ${signal.correlation}` : "no correlation value is currently recorded";
-    const lagText = typeof lag === "number" ? `a measured lag of ${lag}h` : "no measured lag";
-    const openings = [
-      `${symbol} is currently classified as ${state}. The engine shows ${relationship} and ${lagText}.`,
-      `On the lead-lag read, ${symbol} is ${state}: ${relationship}, with ${lagText}.`,
-      `The current engine evidence has ${symbol} at ${state}; it records ${relationship} and ${lagText}.`,
-      `Right now the measurable relationship is ${state}. For ${symbol}, that's ${relationship} with ${lagText}.`,
-    ];
-    return `${openings[variant]} Those are measured relationships, not a forecast.`;
-  }
-
-  if (followUp || previousAssistant) {
-    const openings = [
-      `The short version: the data points to ${state}, not a directional breakout.`,
-      `What makes me say that is the current engine evidence rather than a guess.`,
-      `The key thing I'm looking at is the measured state, not just the headline price.`,
-      `Here's the evidence behind that read:`,
-    ];
-    return `${openings[variant]} ${symbol} is at $${price}, with a 24h change of ${change}%. The lead-lag engine currently reads ${state}, direction ${direction}, z-score ${z}, and measured lag ${lag}h. That supports the present classification; it does not predict the next move.`;
+    const lagText = typeof lag === "number" ? `a measured lag of ${lag}h` : "no measured lag is currently recorded";
+    return [
+      `${symbol} is currently classified as ${state}. The engine shows ${relationship} and ${lagText}. Those are measured relationships, not a forecast.`,
+      `On the lead-lag read, ${symbol} is ${state}: ${relationship}, with ${lagText}. That's the current engine evidence, not a prediction.`,
+      `The current engine evidence has ${symbol} at ${state}; it records ${relationship} and ${lagText}. So that's what the present data supports.`,
+      `Right now the measurable relationship is ${state}. For ${symbol}, that's ${relationship} with ${lagText}. I'm keeping that separate from any forecast.`,
+    ][variant];
   }
 
   if (recentQuestion) {
     return `For the recent view, the live snapshot has ${symbol} at $${price}. The available market feed reports a 24h range of $${low}–$${high}, change ${change}%, and volume ${volume}. The lead-lag engine currently reads ${state}, direction ${direction}, z-score ${z}, lag ${lag}h. I won't invent a four-hour conclusion without recorded observations covering that exact window.`;
   }
 
-  const openings = [
-    `Right now, ${symbol} is sitting at $${price}.`,
-    `The latest ${symbol} snapshot has it at $${price}.`,
-    `Here's the current read on ${symbol}: $${price}.`,
-    `${symbol} is currently trading around $${price}.`,
-  ];
-  return `${openings[variant]} The 24h range is $${low}–$${high}, change is ${change}%, and volume is ${volume}. Gizmo's engine classifies it as ${state}, direction ${direction}, z-score ${z}, with measured lag ${lag}h. That's the factual reading from the live backend.`;
+  if (followUp) {
+    return [
+      `The short version: the data points to ${state}, not a directional breakout. ${symbol} is at $${price}, with a 24h change of ${change}%. The engine reads direction ${direction}, z-score ${z}, and measured lag ${lag}h.`,
+      `What makes me say that is the current engine evidence rather than a guess. ${symbol} is at $${price}; the engine has it at ${state}, direction ${direction}, z-score ${z}, lag ${lag}h.`,
+      `The key thing I'm looking at is the measured state, not just the headline price. ${symbol} is $${price}, and the engine currently reports ${state}, direction ${direction}, z-score ${z}, lag ${lag}h.`,
+      `Here's the evidence behind that read: ${symbol} is $${price}, the 24h change is ${change}%, and the engine currently says ${state} with direction ${direction}, z-score ${z}, lag ${lag}h.`,
+    ][variant];
+  }
+
+  return [
+    `Right now, ${symbol} is sitting at $${price}. The 24h range is $${low}–$${high}, change is ${change}%, and volume is ${volume}. Gizmo's engine classifies it as ${state}, direction ${direction}, z-score ${z}, with measured lag ${lag}h.`,
+    `The latest ${symbol} snapshot has it at $${price}. Over 24h it's ranged from $${low} to $${high}, with ${change}% change and ${volume} volume. The engine currently reads ${state}, direction ${direction}, z-score ${z}, lag ${lag}h.`,
+    `Here's the current read on ${symbol}: $${price}. The live feed shows a $${low}–$${high} 24h range and ${change}% change. The lead-lag engine has it at ${state}, direction ${direction}, z-score ${z}, lag ${lag}h.`,
+    `${symbol} is currently trading around $${price}. The factual snapshot is a $${low}–$${high} 24h range, ${change}% change and ${volume} volume. Gizmo's engine reads ${state}, direction ${direction}, z-score ${z}, measured lag ${lag}h.`,
+  ][variant];
 }
 
 export default async function handler(request: Request) {
@@ -104,7 +99,6 @@ export default async function handler(request: Request) {
     const body = await request.json();
     const messages = Array.isArray(body?.messages) ? body.messages : [];
     const latest = textOf(messages[messages.length - 1]);
-
     let symbol = symbolFromText(latest);
     if (!symbol) {
       for (let i = messages.length - 2; i >= 0; i -= 1) {
@@ -114,48 +108,29 @@ export default async function handler(request: Request) {
     }
     if (!symbol) symbol = "BTC";
 
-    const [market, signals] = await Promise.all([
+    // Do not let the signal endpoint block a normal market response.
+    // Both requests are independently bounded; market data remains the primary source of truth.
+    const [marketResult, signalResult] = await Promise.allSettled([
       backend(`/api/tools/market?pair=${encodeURIComponent(pair(symbol))}`),
       backend(`/api/tools/signals`),
     ]);
+
+    if (marketResult.status === "rejected") throw new Error(`Live market data unavailable: ${marketResult.reason instanceof Error ? marketResult.reason.message : "request failed"}`);
+    const market = marketResult.value;
+    const signals = signalResult.status === "fulfilled" ? signalResult.value : null;
     const signal = signals?.pairs?.[pair(symbol)] ?? signals?.pairs?.[symbol] ?? {};
+    const hasConversation = messages.some((message: any) => message?.role === "assistant");
+    const answer = naturalAnswer(symbol, market, signal, latest, hasConversation);
 
-    let previousAssistant = "";
-    for (let i = messages.length - 2; i >= 0; i -= 1) {
-      if (messages[i]?.role === "assistant") {
-        previousAssistant = textOf(messages[i]);
-        break;
-      }
-    }
-
-    // The deployed chat path intentionally does not call an external LLM.
-    // Vercel AI Gateway previously returned 401s and left the UI waiting behind
-    // a long generation path. GIZMO now answers from the existing factual engine
-    // directly, preserving real data and making the request bounded and reliable.
-    const answer = naturalAnswer(symbol, market, signal, latest, previousAssistant);
-
-    return new Response(JSON.stringify({
-      text: answer,
-      market,
-      signal,
-      pair: pair(symbol),
-    }), {
+    return new Response(JSON.stringify({ text: answer, market, signal, pair: pair(symbol) }), {
       status: 200,
-      headers: {
-        "content-type": "application/json; charset=utf-8",
-        "cache-control": "no-store",
-      },
+      headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
     });
   } catch (error) {
     console.error("GIZMO chat failed:", error);
-    return new Response(JSON.stringify({
-      error: error instanceof Error ? error.message : "GIZMO could not complete that transmission.",
-    }), {
+    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "GIZMO could not complete that transmission." }), {
       status: 503,
-      headers: {
-        "content-type": "application/json; charset=utf-8",
-        "cache-control": "no-store",
-      },
+      headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
     });
   }
 }
