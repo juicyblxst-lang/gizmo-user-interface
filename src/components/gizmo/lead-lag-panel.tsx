@@ -5,6 +5,7 @@ type Point = { timestamp: number; leaderCumulativeReturn: number; followerCumula
 type Analysis = { available: boolean; leader: string; follower: string; lagHours?: number; correlation?: number; alpha?: number; beta?: number; zscore?: number; series?: Point[]; reason?: string; };
 
 const COLORS = { leader: "#22d3ee", follower: "#a7f3d0" };
+const BACKEND = "https://gizmo-backend-zkft.onrender.com";
 function instId(market: MarketPair) { return `${market.split("/")[0]}-USDT-SWAP`; }
 function pct(value: number) { return `${(value * 100).toFixed(2)}%`; }
 
@@ -16,13 +17,15 @@ export function LeadLagPanel({ market }: { market: MarketPair }) {
 
   useEffect(() => {
     let disposed = false;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 12000);
     setLoading(true); setError(false); setAnalysis(null);
-    fetch(`/api/leadlag-chart?pair=${encodeURIComponent(id)}`, { cache: "no-store" })
+    fetch(`${BACKEND}/api/tools/leadlag-chart?pair=${encodeURIComponent(id)}`, { cache: "no-store", signal: controller.signal })
       .then(async (response) => { if (!response.ok) throw new Error("Lead-lag data unavailable"); return response.json() as Promise<Analysis>; })
       .then((data) => { if (!disposed) setAnalysis(data); })
       .catch(() => { if (!disposed) setError(true); })
-      .finally(() => { if (!disposed) setLoading(false); });
-    return () => { disposed = true; };
+      .finally(() => { window.clearTimeout(timer); if (!disposed) setLoading(false); });
+    return () => { disposed = true; controller.abort(); window.clearTimeout(timer); };
   }, [id]);
 
   const chart = useMemo(() => {
