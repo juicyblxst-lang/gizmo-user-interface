@@ -1,6 +1,3 @@
-"use client";
-
-import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { Menu, X } from "lucide-react";
 import { ChatWindow } from "@/components/gizmo/chat-window";
@@ -16,7 +13,6 @@ import { MarketChart } from "@/components/gizmo/market-chart";
 import { LeadLagPanel } from "@/components/gizmo/lead-lag-panel";
 
 export function Workspace({ threadId }: { threadId: string }) {
-  const navigate = useNavigate();
   const { threads, ensureThread, createThread, deleteThread, saveMessages } = useThreads();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [marketContext, setMarketContext] = useState<MarketContext | null>(null);
@@ -24,8 +20,9 @@ export function Workspace({ threadId }: { threadId: string }) {
   const [docsOpen, setDocsOpen] = useState(false);
   useEffect(() => { ensureThread(threadId); }, [ensureThread, threadId]);
   const active = threads.find((t) => t.id === threadId);
-  const handleCreate = useCallback(() => { const id = createThread(); setMarketContext(null); setMobileNavOpen(false); void navigate({ to: "/c/$threadId", params: { threadId: id } }); }, [createThread, navigate]);
-  const handleDelete = useCallback((id: string) => { deleteThread(id); if (id !== threadId) return; void navigate({ to: "/" }); }, [deleteThread, navigate, threadId]);
+  const go = useCallback((path: string) => { window.history.pushState({}, "", path); window.dispatchEvent(new PopStateEvent("popstate")); }, []);
+  const handleCreate = useCallback(() => { const id = createThread(); setMarketContext(null); setMobileNavOpen(false); go(`/c/${encodeURIComponent(id)}`); }, [createThread, go]);
+  const handleDelete = useCallback((id: string) => { deleteThread(id); if (id === threadId) go("/"); }, [deleteThread, go, threadId]);
   const handleOpenAbout = useCallback(() => { setDocsOpen(false); setAboutOpen(true); }, []);
   const handleOpenDocs = useCallback(() => { setAboutOpen(false); setDocsOpen(true); }, []);
   return <div className="flex h-dvh flex-col bg-background">
