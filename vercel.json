@@ -6,7 +6,7 @@
       "destination": "https://gizmo-backend-zkft.onrender.com/api/tools/:path*"
     },
     {
-      "source": "/((?!api/).*)",
+      "source": "/((?!api/|assets/).*)",
       "destination": "/index.html"
     }
   ]
