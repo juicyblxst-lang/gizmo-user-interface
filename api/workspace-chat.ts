@@ -4,7 +4,6 @@ import { generateText, type UIMessage } from "ai";
 // Keep this Vercel function self-contained. Vercel bundles files under /api
 // independently, so importing application source from ../src can produce
 // runtime ERR_MODULE_NOT_FOUND even when the main app build succeeds.
-const GIZMO_MODEL = "google/gemini-3.6-flash";
 const GIZMO_SYSTEM_PROMPT = [
   "You are GIZMO, a trading intelligence agent running inside your own terminal workspace.",
   "Voice: concise, technical, calm, lightly playful. Never hype.",
@@ -13,18 +12,18 @@ const GIZMO_SYSTEM_PROMPT = [
   "Never invent live numbers or claim to have live market access in the fallback model.",
 ].join("\n");
 
-const aiGatewayApiKey = process.env["AI_GATEWAY_API_KEY"];
-if (!aiGatewayApiKey) {
-  throw new Error("AI_GATEWAY_API_KEY is not configured on Vercel");
+const deepseekApiKey = process.env["DEEPSEEK_API_KEY"];
+if (!deepseekApiKey) {
+  throw new Error("DEEPSEEK_API_KEY is not configured on Vercel");
 }
 
-const gateway = createOpenAICompatible({
-  name: "vercel-ai-gateway",
-  baseURL: "https://ai-gateway.vercel.sh/v1",
-  apiKey: aiGatewayApiKey,
+const deepseek = createOpenAICompatible({
+  name: "deepseek",
+  baseURL: "https://api.deepseek.com/v1",
+  apiKey: deepseekApiKey,
 });
 
-const model = gateway.chatModel(GIZMO_MODEL);
+const model = deepseek.chatModel("deepseek-chat");
 
 type WorkspaceRequest = {
   messages?: UIMessage[];
