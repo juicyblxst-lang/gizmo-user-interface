@@ -35,7 +35,7 @@ export function ChatWindow({ threadId, initialMessages, marketContext, onMessage
     const controller = new AbortController(); abortRef.current = controller; const timeout = window.setTimeout(() => controller.abort(), 30000);
     try {
       setStatus("submitted");
-      const response = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, cache: "no-store", signal: controller.signal, body: JSON.stringify({ messages: outgoing }) });
+      const response = await fetch("/api/workspace-chat", { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, cache: "no-store", signal: controller.signal, body: JSON.stringify({ messages: outgoing, marketContext }) });
       const raw = await response.text(); let data: any = {};
       try { data = JSON.parse(raw); } catch { throw new Error(raw || `GIZMO returned HTTP ${response.status}`); }
       if (!response.ok || data?.error) throw new Error(data?.error || `GIZMO returned HTTP ${response.status}`);
@@ -45,7 +45,7 @@ export function ChatWindow({ threadId, initialMessages, marketContext, onMessage
       const message = cause instanceof Error && cause.name === "AbortError" ? "GIZMO timed out waiting for live market data. The interface is still responsive — try again." : cause instanceof Error ? cause.message : "GIZMO could not complete that transmission.";
       setError(message); setStatus("error"); setMessages((current) => current.filter((item) => item.id !== assistantId));
     } finally { window.clearTimeout(timeout); if (abortRef.current === controller) abortRef.current = null; submittingRef.current = false; }
-  }, []);
+  }, [marketContext]);
 
   const handleSubmit = useCallback((message: PromptInputMessage) => { const text = message.text?.trim(); if (!text || busy || submittingRef.current) return; submittingRef.current = true; setError(null); const userMessage = textMessage(messageId(), "user", text); const assistantId = messageId(); const outgoing = [...messages, userMessage]; setMessages([...outgoing, textMessage(assistantId, "assistant", "")]); void transmit(outgoing, assistantId); }, [busy, messages, transmit]);
   const stop = useCallback(() => { abortRef.current?.abort(); submittingRef.current = false; setStatus("ready"); }, []);
