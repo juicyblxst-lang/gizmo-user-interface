@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Menu, X } from "lucide-react";
+import { ArrowLeft, Menu, X } from "lucide-react";
 import { ChatWindow } from "@/components/gizmo/chat-window";
 import { GizmoMark } from "@/components/gizmo/gizmo-avatar";
 import { ThreadList } from "@/components/gizmo/thread-list";
@@ -25,8 +25,9 @@ export function Workspace({ threadId }: { threadId: string }) {
   const handleDelete = useCallback((id: string) => { deleteThread(id); if (id === threadId) go("/"); }, [deleteThread, go, threadId]);
   const handleOpenAbout = useCallback(() => { setDocsOpen(false); setAboutOpen(true); }, []);
   const handleOpenDocs = useCallback(() => { setAboutOpen(false); setDocsOpen(true); }, []);
+  const goHome = useCallback(() => { setMobileNavOpen(false); setMarketContext(null); go("/"); }, [go]);
   return <div className="flex h-dvh flex-col bg-background">
-    <header className="flex items-center justify-between gap-3 border-b-2 border-border bg-terminal px-3 py-2 sm:px-4"><div className="flex items-center gap-3"><button type="button" aria-label="Toggle sessions" onClick={() => setMobileNavOpen((o) => !o)} className="pixel-frame-inset flex size-8 items-center justify-center bg-secondary text-primary md:hidden">{mobileNavOpen ? <X className="size-4" /> : <Menu className="size-4" />}</button><div className="flex items-center gap-2"><GizmoMark className="size-7" /><h1 className="text-pixel text-[12px] leading-none text-primary">{GIZMO_NAME}</h1></div></div><span className="text-pixel hidden text-[8px] text-muted-foreground sm:inline">{GIZMO_VERSION}</span></header>
+    <header className="flex items-center justify-between gap-3 border-b-2 border-border bg-terminal px-3 py-2 sm:px-4"><div className="flex items-center gap-2"><button type="button" aria-label="Back to GIZMO home" onClick={goHome} className="pixel-frame-inset flex size-8 items-center justify-center bg-secondary text-primary transition-colors hover:bg-primary hover:text-primary-foreground"><ArrowLeft className="size-4" /></button><button type="button" aria-label="Toggle sessions" onClick={() => setMobileNavOpen((o) => !o)} className="pixel-frame-inset flex size-8 items-center justify-center bg-secondary text-primary md:hidden">{mobileNavOpen ? <X className="size-4" /> : <Menu className="size-4" />}</button><button type="button" aria-label="GIZMO home" onClick={goHome} className="flex items-center gap-2 text-left"><GizmoMark className="size-7" /><h1 className="text-pixel text-[12px] leading-none text-primary">{GIZMO_NAME}</h1></button></div><span className="text-pixel hidden text-[8px] text-muted-foreground sm:inline">{GIZMO_VERSION}</span></header>
     <div className="relative flex min-h-0 flex-1">
       <aside className={cn("absolute inset-y-0 left-0 z-50 w-64 border-r-2 border-border bg-sidebar transition-transform md:relative md:block md:translate-x-0", mobileNavOpen ? "translate-x-0" : "-translate-x-full")}><ThreadList threads={threads} activeId={threadId} onCreate={handleCreate} onDelete={handleDelete} onNavigate={() => setMobileNavOpen(false)} selectedMarket={marketContext?.market ?? null} onSelectMarket={(market) => { setMarketContext({ market, timeframe: "1h" }); setMobileNavOpen(false); }} onOpenAbout={handleOpenAbout} onOpenDocs={handleOpenDocs} /></aside>
       {mobileNavOpen ? <button type="button" aria-label="Close sessions" onClick={() => setMobileNavOpen(false)} className="absolute inset-0 z-40 bg-background/60 md:hidden" /> : null}
