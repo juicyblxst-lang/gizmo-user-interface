@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiChatRouteImport } from './routes/api/chat'
+import { Route as ApiWorkspaceChatRouteImport } from './routes/api/workspace-chat'
 import { Route as CThreadIdRouteImport } from './routes/c.$threadId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -23,6 +24,11 @@ const ApiChatRoute = ApiChatRouteImport.update({
   path: '/api/chat',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWorkspaceChatRoute = ApiWorkspaceChatRouteImport.update({
+  id: '/api/workspace-chat',
+  path: '/api/workspace-chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CThreadIdRoute = CThreadIdRouteImport.update({
   id: '/c/$threadId',
   path: '/c/$threadId',
@@ -32,30 +38,34 @@ const CThreadIdRoute = CThreadIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/chat': typeof ApiChatRoute
+  '/api/workspace-chat': typeof ApiWorkspaceChatRoute
   '/c/$threadId': typeof CThreadIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/chat': typeof ApiChatRoute
+  '/api/workspace-chat': typeof ApiWorkspaceChatRoute
   '/c/$threadId': typeof CThreadIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/api/chat': typeof ApiChatRoute
+  '/api/workspace-chat': typeof ApiWorkspaceChatRoute
   '/c/$threadId': typeof CThreadIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/chat' | '/c/$threadId'
+  fullPaths: '/' | '/api/chat' | '/api/workspace-chat' | '/c/$threadId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/chat' | '/c/$threadId'
-  id: '__root__' | '/' | '/api/chat' | '/c/$threadId'
+  to: '/' | '/api/chat' | '/api/workspace-chat' | '/c/$threadId'
+  id: '__root__' | '/' | '/api/chat' | '/api/workspace-chat' | '/c/$threadId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiChatRoute: typeof ApiChatRoute
+  ApiWorkspaceChatRoute: typeof ApiWorkspaceChatRoute
   CThreadIdRoute: typeof CThreadIdRoute
 }
 
@@ -75,6 +85,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiChatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/workspace-chat': {
+      id: '/api/workspace-chat'
+      path: '/api/workspace-chat'
+      fullPath: '/api/workspace-chat'
+      preLoaderRoute: typeof ApiWorkspaceChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/c/$threadId': {
       id: '/c/$threadId'
       path: '/c/$threadId'
@@ -88,6 +105,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiChatRoute: ApiChatRoute,
+  ApiWorkspaceChatRoute: ApiWorkspaceChatRoute,
   CThreadIdRoute: CThreadIdRoute,
 }
 export const routeTree = rootRouteImport
