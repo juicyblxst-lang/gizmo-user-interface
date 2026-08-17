@@ -11,14 +11,19 @@ const gateway = createOpenAICompatible({
 
 const model = gateway.chatModel(GIZMO_MODEL);
 
-async function backendRequest(messages: UIMessage[]) {
+type WorkspaceRequest = {
+  messages?: UIMessage[];
+  marketContext?: { market?: string; timeframe?: string } | null;
+};
+
+async function backendRequest(messages: UIMessage[], marketContext: WorkspaceRequest["marketContext"]) {
   const base = process.env.GIZMO_BACKEND_URL;
   if (!base) throw new Error("GIZMO_BACKEND_URL is not configured on Vercel");
   const response = await fetch(new URL("/api/agent/chat", `${base.replace(/\/$/, "")}/`), {
     method: "POST",
     headers: { "content-type": "application/json" },
     cache: "no-store",
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages, marketContext }),
   });
   const text = await response.text();
   let data: any = {};
@@ -36,14 +41,20 @@ export const Route = createFileRoute("/api/workspace-chat")({
     handlers: {
       POST: async ({ request }) => {
         try {
-          const body = await request.json() as { messages?: UIMessage[] };
+          const body = await request.json() as WorkspaceRequest;
           const messages = Array.isArray(body.messages) ? body.messages : [];
-          const intelligence = await backendRequest(messages);
+          const intelligence = await backendRequest(messages, body.marketContext ?? null);
 
           if (intelligence?.handled && typeof intelligence.response === "string") {
-            return Response.json({ text: intelligence.response, source: "workspace-intelligence", context: intelligence.context ?? null });
+            return Response.json({
+              text: intelligence.response,
+              source: "workspace-intelligence",
+              context: intelligence.context ?? null,
+            });
           }
 
+          // General/non-market questions continue through the current Gizmo
+          // model path. The workspace adapter deliberately does not hijack them.
           const promptMessages = messages.map((message) => ({
             role: message.role as "user" | "assistant",
             content: textOf(message),
