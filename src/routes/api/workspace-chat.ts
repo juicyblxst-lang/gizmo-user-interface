@@ -1,15 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { generateText, type UIMessage } from "ai";
-import { GIZMO_MODEL, GIZMO_SYSTEM_PROMPT } from "@/lib/gizmo/config";
+import { GIZMO_SYSTEM_PROMPT } from "@/lib/gizmo/config";
 
-const gateway = createOpenAICompatible({
-  name: "vercel-ai-gateway",
-  baseURL: "https://ai-gateway.vercel.sh/v1",
-  apiKey: process.env.AI_GATEWAY_API_KEY,
+const deepseek = createOpenAICompatible({
+  name: "deepseek",
+  baseURL: "https://api.deepseek.com/v1",
+  apiKey: process.env.DEEPSEEK_API_KEY,
 });
 
-const model = gateway.chatModel(GIZMO_MODEL);
+const model = deepseek.chatModel("deepseek-chat");
 
 type WorkspaceRequest = {
   messages?: UIMessage[];
