@@ -15,5 +15,14 @@ export default defineConfig({
   ],
   build: {
     target: "es2022",
+    rollupOptions: {
+      output: {
+        entryFileNames: "assets/gizmo.js",
+        assetFileNames: (assetInfo) => {
+          if (assetInfo.name?.endsWith(".css")) return "assets/gizmo.css";
+          return "assets/[name]-[hash][extname]";
+        },
+      },
+    },
   },
 });
