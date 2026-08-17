@@ -2,10 +2,15 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { generateText, type UIMessage } from "ai";
 import { GIZMO_MODEL, GIZMO_SYSTEM_PROMPT } from "../src/lib/gizmo/config";
 
+const aiGatewayApiKey = process.env["AI_GATEWAY_API_KEY"];
+if (!aiGatewayApiKey) {
+  throw new Error("AI_GATEWAY_API_KEY is not configured on Vercel");
+}
+
 const gateway = createOpenAICompatible({
   name: "vercel-ai-gateway",
   baseURL: "https://ai-gateway.vercel.sh/v1",
-  apiKey: process.env.AI_GATEWAY_API_KEY,
+  apiKey: aiGatewayApiKey,
 });
 
 const model = gateway.chatModel(GIZMO_MODEL);
@@ -16,7 +21,7 @@ type WorkspaceRequest = {
 };
 
 async function backendRequest(messages: UIMessage[], marketContext: WorkspaceRequest["marketContext"]) {
-  const base = process.env.GIZMO_BACKEND_URL;
+  const base = process.env["GIZMO_BACKEND_URL"];
   if (!base) throw new Error("GIZMO_BACKEND_URL is not configured on Vercel");
   const response = await fetch(new URL("/api/agent/chat", `${base.replace(/\/$/, "")}/`), {
     method: "POST",
