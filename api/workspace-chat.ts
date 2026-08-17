@@ -1,7 +1,5 @@
-import server from "../src/server";
+import { handleWorkspaceChat } from "../src/routes/api/workspace-chat";
 
-export default {
-  fetch(request: Request) {
-    return server.fetch(request, undefined, undefined);
-  },
-};
+export function POST(request: Request) {
+  return handleWorkspaceChat(request);
+}
