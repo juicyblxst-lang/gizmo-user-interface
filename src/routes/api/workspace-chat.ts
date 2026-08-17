@@ -36,40 +36,42 @@ function textOf(message: UIMessage) {
   return message.parts.map((part) => part.type === "text" ? part.text : "").join("");
 }
 
+export async function handleWorkspaceChat(request: Request): Promise<Response> {
+  try {
+    const body = await request.json() as WorkspaceRequest;
+    const messages = Array.isArray(body.messages) ? body.messages : [];
+    const intelligence = await backendRequest(messages, body.marketContext ?? null);
+
+    if (intelligence?.handled && typeof intelligence.response === "string") {
+      return Response.json({
+        text: intelligence.response,
+        source: "workspace-intelligence",
+        context: intelligence.context ?? null,
+      });
+    }
+
+    // General/non-market questions continue through the current Gizmo
+    // model path. The workspace adapter deliberately does not hijack them.
+    const promptMessages = messages.map((message) => ({
+      role: message.role as "user" | "assistant",
+      content: textOf(message),
+    }));
+    const result = await generateText({
+      model,
+      system: `${GIZMO_SYSTEM_PROMPT}\n\nThe verified workspace intelligence bridge handles live market and lead-lag questions. For this fallback, do not invent live numbers or claim to have live market access.`,
+      messages: promptMessages,
+    });
+    return Response.json({ text: result.text, source: "model-fallback", context: null });
+  } catch (error) {
+    console.error("GIZMO workspace chat error:", error);
+    return Response.json({ error: error instanceof Error ? error.message : "GIZMO chat failed" }, { status: 503 });
+  }
+}
+
 export const Route = createFileRoute("/api/workspace-chat")({
   server: {
     handlers: {
-      POST: async ({ request }) => {
-        try {
-          const body = await request.json() as WorkspaceRequest;
-          const messages = Array.isArray(body.messages) ? body.messages : [];
-          const intelligence = await backendRequest(messages, body.marketContext ?? null);
-
-          if (intelligence?.handled && typeof intelligence.response === "string") {
-            return Response.json({
-              text: intelligence.response,
-              source: "workspace-intelligence",
-              context: intelligence.context ?? null,
-            });
-          }
-
-          // General/non-market questions continue through the current Gizmo
-          // model path. The workspace adapter deliberately does not hijack them.
-          const promptMessages = messages.map((message) => ({
-            role: message.role as "user" | "assistant",
-            content: textOf(message),
-          }));
-          const result = await generateText({
-            model,
-            system: `${GIZMO_SYSTEM_PROMPT}\n\nThe verified workspace intelligence bridge handles live market and lead-lag questions. For this fallback, do not invent live numbers or claim to have live market access.`,
-            messages: promptMessages,
-          });
-          return Response.json({ text: result.text, source: "model-fallback", context: null });
-        } catch (error) {
-          console.error("GIZMO workspace chat error:", error);
-          return Response.json({ error: error instanceof Error ? error.message : "GIZMO chat failed" }, { status: 503 });
-        }
-      },
+      POST: ({ request }) => handleWorkspaceChat(request),
     },
   },
 });
