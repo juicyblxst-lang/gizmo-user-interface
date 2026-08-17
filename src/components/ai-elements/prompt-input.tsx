@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useState } from "react";
 import type { ChatStatus } from "ai";
-import { CornerDownLeftIcon } from "lucide-react";
+import { CornerDownLeftIcon, SquareIcon } from "lucide-react";
 
 export type PromptInputMessage = { text?: string };
 
@@ -52,7 +52,7 @@ export function PromptInputSubmit({ status, onClick, className, ...props }: { st
       onClick={busy ? onClick : undefined}
       {...props}
     >
-      {busy ? "Stop" : <CornerDownLeftIcon aria-hidden="true" className="size-6" />}
+      {busy ? <SquareIcon aria-hidden="true" className="size-4" /> : <CornerDownLeftIcon aria-hidden="true" className="size-6" />}
     </button>
   );
 }
