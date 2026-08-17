@@ -4,10 +4,6 @@
     {
       "source": "/api/tools/:path*",
       "destination": "https://gizmo-backend-zkft.onrender.com/api/tools/:path*"
-    },
-    {
-      "source": "/((?!api/).*)",
-      "destination": "/index.html"
     }
   ]
 }
